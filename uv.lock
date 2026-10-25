@@ -1459,6 +1459,8 @@ source = { editable = "." }
 dependencies = [
     { name = "amazon-orders", extra = ["captcha"] },
     { name = "cache-decorator" },
+    { name = "click", version = "8.1.8", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "click", version = "8.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "furl" },
     { name = "loguru" },
     { name = "pydantic", extra = ["email"] },
@@ -1498,6 +1500,7 @@ requires-dist = [
     { name = "amazon-orders", extras = ["captcha"], specifier = ">=5.1.0" },
     { name = "anthropic", marker = "extra == 'ai'", specifier = ">=0.125.0" },
     { name = "cache-decorator", specifier = ">=2.2.0" },
+    { name = "click", specifier = ">=8.1" },
     { name = "furl", specifier = ">=2.1.4" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "openai", marker = "extra == 'ai'", specifier = ">=1.12.0" },
