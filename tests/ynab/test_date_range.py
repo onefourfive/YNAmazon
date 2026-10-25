@@ -39,12 +39,18 @@ def test_no_options_means_no_range():
 
 
 def test_until_defaults_to_today_when_missing_or_empty():
-    assert DateRange.from_options("20261001", None, today=TODAY) == DateRange(date(2026, 10, 1), TODAY)
-    assert DateRange.from_options("20261001", "", today=TODAY) == DateRange(date(2026, 10, 1), TODAY)
+    assert DateRange.from_options("20261001", None, today=TODAY) == DateRange(
+        date(2026, 10, 1), TODAY
+    )
+    assert DateRange.from_options("20261001", "", today=TODAY) == DateRange(
+        date(2026, 10, 1), TODAY
+    )
 
 
 def test_until_alone_looks_back_default_window():
-    assert DateRange.from_options(None, "20260930", today=TODAY) == DateRange(date(2026, 8, 30), date(2026, 9, 30))
+    assert DateRange.from_options(None, "20260930", today=TODAY) == DateRange(
+        date(2026, 8, 30), date(2026, 9, 30)
+    )
 
 
 def test_single_day_range():
@@ -99,12 +105,18 @@ def test_amazon_windows_cover_range_with_buffers():
 
     assert date_range.contains(date(2026, 1, 10)) and date_range.contains(date(2026, 3, 31))
     assert not date_range.contains(date(2026, 4, 1))
-    assert date_range.contains_amazon(date(2026, 1, 3)) and date_range.contains_amazon(date(2026, 4, 7))
+    assert date_range.contains_amazon(date(2026, 1, 3)) and date_range.contains_amazon(
+        date(2026, 4, 7)
+    )
     assert not date_range.contains_amazon(date(2026, 4, 8))
 
 
 def test_amazon_order_years_spans_multiple_years():
-    assert DateRange(date(2024, 6, 1), date(2026, 2, 1)).amazon_order_years() == ["2024", "2025", "2026"]
+    assert DateRange(date(2024, 6, 1), date(2026, 2, 1)).amazon_order_years() == [
+        "2024",
+        "2025",
+        "2026",
+    ]
 
 
 # process_transactions
@@ -148,13 +160,20 @@ def test_process_transactions_limits_work_to_range():
     too_late = _amazon_tran("30.00", date(2026, 10, 20))
     matching = _amazon_tran("30.00", date(2026, 9, 15))
 
-    with patch("ynamazon.main.get_ynab_transactions") as get_ynab, \
-         patch("ynamazon.main.AmazonTransactionRetriever") as retriever, \
-         patch("ynamazon.main.build_memo", side_effect=lambda console, a_tran: f"memo for {id(a_tran)}"), \
-         patch("ynamazon.main.confirm", return_value=True), \
-         patch("ynamazon.main.update_ynab_transaction") as update, \
-         patch("ynamazon.main.settings.use_ai_categorization", False):
-        get_ynab.return_value = (TempYnabTransactions(root=[in_range, after_range]), Mock(id="payee-processed"))
+    with (
+        patch("ynamazon.main.get_ynab_transactions") as get_ynab,
+        patch("ynamazon.main.AmazonTransactionRetriever") as retriever,
+        patch(
+            "ynamazon.main.build_memo", side_effect=lambda console, a_tran: f"memo for {id(a_tran)}"
+        ),
+        patch("ynamazon.main.confirm", return_value=True),
+        patch("ynamazon.main.update_ynab_transaction") as update,
+        patch("ynamazon.main.settings.use_ai_categorization", False),
+    ):
+        get_ynab.return_value = (
+            TempYnabTransactions(root=[in_range, after_range]),
+            Mock(id="payee-processed"),
+        )
         retriever.return_value.get_amazon_transactions.return_value = [too_late, matching]
 
         process_transactions(ynab_config=Mock(), budget_id="budget", date_range=date_range)
@@ -170,8 +189,10 @@ def test_process_transactions_limits_work_to_range():
 
 
 def test_process_transactions_without_range_is_unchanged():
-    with patch("ynamazon.main.get_ynab_transactions") as get_ynab, \
-         patch("ynamazon.main.AmazonTransactionRetriever") as retriever:
+    with (
+        patch("ynamazon.main.get_ynab_transactions") as get_ynab,
+        patch("ynamazon.main.AmazonTransactionRetriever") as retriever,
+    ):
         get_ynab.return_value = ([], Mock(id="payee-processed"))
         retriever.return_value.get_amazon_transactions.return_value = []
         process_transactions(ynab_config=Mock(), budget_id="budget")
@@ -199,7 +220,9 @@ def cli_run():
 def test_cli_passes_date_range(cli_run):
     result, process = cli_run(["--since", "20261001", "--until", "20261015"])
     assert result.exit_code == 0, result.output
-    assert process.call_args.kwargs["date_range"] == DateRange(date(2026, 10, 1), date(2026, 10, 15))
+    assert process.call_args.kwargs["date_range"] == DateRange(
+        date(2026, 10, 1), date(2026, 10, 15)
+    )
 
 
 def test_cli_without_dates_passes_no_range(cli_run):

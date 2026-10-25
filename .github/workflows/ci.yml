@@ -57,3 +57,16 @@ jobs:
         run: |
           echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
           uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cache pre-commit hook environments
+        if: ${{ !cancelled() }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      # Formatting, whitespace, lock-file sync, and dependency checks. Runs in the project environment
+      # because the deptry hook uses the project's installed packages.
+      - name: Pre-commit checks
+        if: ${{ !cancelled() }}
+        run: uv run pre-commit run --all-files --show-diff-on-failure

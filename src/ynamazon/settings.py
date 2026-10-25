@@ -63,7 +63,9 @@ class Settings(BaseSettings):
         if self.ai_provider == "openai" and self.openai_api_key is None:
             raise MissingOpenAIAPIKey("OpenAI API key is required when AI features are enabled")
         if self.ai_provider == "anthropic" and self.anthropic_api_key is None:
-            raise MissingAnthropicAPIKey("Anthropic API key is required when AI features are enabled")
+            raise MissingAnthropicAPIKey(
+                "Anthropic API key is required when AI features are enabled"
+            )
         return self
 
 

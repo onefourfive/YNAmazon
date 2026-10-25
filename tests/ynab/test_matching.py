@@ -20,7 +20,9 @@ def _amazon_tran(total: str, completed_date: date = date(2026, 10, 3)) -> Mock:
     return amazon_tran
 
 
-def _ynab_tran(txn_id: str, amount: int = -30000, var_date: date = date(2026, 10, 3)) -> TempYnabTransaction:
+def _ynab_tran(
+    txn_id: str, amount: int = -30000, var_date: date = date(2026, 10, 3)
+) -> TempYnabTransaction:
     return TempYnabTransaction.model_validate(
         {
             "id": txn_id,
@@ -52,12 +54,21 @@ def test_find_matches_first_transaction():
 def test_find_prefers_same_date_among_equal_amounts():
     earlier = _amazon_tran("30.00", date(2026, 10, 1))
     same_day = _amazon_tran("30.00", date(2026, 10, 3))
-    assert find_amazon_transaction([earlier, same_day], Decimal("-30.00"), on_date=date(2026, 10, 3)) is same_day
+    assert (
+        find_amazon_transaction([earlier, same_day], Decimal("-30.00"), on_date=date(2026, 10, 3))
+        is same_day
+    )
 
 
 def test_find_falls_back_to_first_amount_match_when_no_date_matches():
-    first, second = _amazon_tran("30.00", date(2026, 10, 1)), _amazon_tran("30.00", date(2026, 10, 2))
-    assert find_amazon_transaction([first, second], Decimal("-30.00"), on_date=date(2026, 10, 9)) is first
+    first, second = (
+        _amazon_tran("30.00", date(2026, 10, 1)),
+        _amazon_tran("30.00", date(2026, 10, 2)),
+    )
+    assert (
+        find_amazon_transaction([first, second], Decimal("-30.00"), on_date=date(2026, 10, 9))
+        is first
+    )
 
 
 # process_transactions
@@ -68,12 +79,17 @@ def run():
     """Run process_transactions with YNAB and Amazon mocked; the real matcher is used."""
 
     def _run(ynab_trans: list[TempYnabTransaction], amazon_trans: list[Mock], answers: list[bool]):
-        with patch("ynamazon.main.get_ynab_transactions") as get_ynab, \
-             patch("ynamazon.main.AmazonTransactionRetriever") as retriever, \
-             patch("ynamazon.main.build_memo", side_effect=lambda console, a_tran: f"memo for {id(a_tran)}") as build_memo, \
-             patch("ynamazon.main.confirm", side_effect=answers) as confirm, \
-             patch("ynamazon.main.update_ynab_transaction") as update, \
-             patch("ynamazon.main.settings.use_ai_categorization", False):
+        with (
+            patch("ynamazon.main.get_ynab_transactions") as get_ynab,
+            patch("ynamazon.main.AmazonTransactionRetriever") as retriever,
+            patch(
+                "ynamazon.main.build_memo",
+                side_effect=lambda console, a_tran: f"memo for {id(a_tran)}",
+            ) as build_memo,
+            patch("ynamazon.main.confirm", side_effect=answers) as confirm,
+            patch("ynamazon.main.update_ynab_transaction") as update,
+            patch("ynamazon.main.settings.use_ai_categorization", False),
+        ):
             get_ynab.return_value = (ynab_trans, Mock(id="payee-processed"))
             retriever.return_value.get_amazon_transactions.return_value = amazon_trans
 
@@ -120,7 +136,9 @@ def test_amazon_transaction_stays_available_when_nothing_is_updated(run):
 def test_declined_date_mismatch_skips_without_building_memo(run):
     """The memo (which may call an AI provider) is only built once the match is accepted."""
     result = run(
-        [_ynab_tran("t1", var_date=date(2026, 10, 9))], [_amazon_tran("30.00", date(2026, 10, 3))], answers=[False]
+        [_ynab_tran("t1", var_date=date(2026, 10, 9))],
+        [_amazon_tran("30.00", date(2026, 10, 3))],
+        answers=[False],
     )
 
     result.build_memo.assert_not_called()

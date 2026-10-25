@@ -103,7 +103,9 @@ def allocate_amounts(total: int, weights: dict[str, Decimal]) -> dict[str, int]:
     cents, leftover_milliunits = divmod(abs(total), 10)
 
     exact = {key: Decimal(cents) * weight / weight_sum for key, weight in weights.items()}
-    shares = {key: int(value.to_integral_value(rounding=ROUND_FLOOR)) for key, value in exact.items()}
+    shares = {
+        key: int(value.to_integral_value(rounding=ROUND_FLOOR)) for key, value in exact.items()
+    }
 
     # Hand out the remaining cents to the categories with the largest fractional parts
     remaining = cents - sum(shares.values())
@@ -153,7 +155,9 @@ def suggest_categorization(
     if response is None:
         return None
 
-    assignments = _validate_assignments(response, item_count=len(items), category_count=len(categories))
+    assignments = _validate_assignments(
+        response, item_count=len(items), category_count=len(categories)
+    )
     if assignments is None:
         return None
 
@@ -172,7 +176,9 @@ def suggest_categorization(
             )
 
     whole_order = amazon_tran.transaction_total == amazon_tran.order_total
-    can_split = len(items_by_category) > 1 and whole_order and prices_known and sum(weights.values()) > 0
+    can_split = (
+        len(items_by_category) > 1 and whole_order and prices_known and sum(weights.values()) > 0
+    )
 
     if can_split:
         amounts = allocate_amounts(ynab_tran.amount, {str(k): v for k, v in weights.items()})
@@ -232,7 +238,9 @@ def _validate_assignments(
     """
     counts = Counter(assignment.item for assignment in response.assignments)
     if set(counts) != set(range(1, item_count + 1)) or any(count > 1 for count in counts.values()):
-        logger.warning(f"AI categorization didn't assign each of the {item_count} items exactly once")
+        logger.warning(
+            f"AI categorization didn't assign each of the {item_count} items exactly once"
+        )
         return None
 
     if any(not 1 <= assignment.category <= category_count for assignment in response.assignments):
@@ -293,7 +301,10 @@ def _anthropic_categorization(prompt: str) -> CategorizationResponse | None:
             messages=[{"role": "user", "content": prompt}],
             output_config={
                 "effort": "low",
-                "format": {"type": "json_schema", "schema": anthropic.transform_schema(CategorizationResponse)},
+                "format": {
+                    "type": "json_schema",
+                    "schema": anthropic.transform_schema(CategorizationResponse),
+                },
             },
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
