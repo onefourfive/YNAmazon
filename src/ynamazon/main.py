@@ -16,6 +16,7 @@ from ynamazon.amazon_transactions import (
 )
 from ynamazon.ai_categorization import suggest_categorization
 from ynamazon.ai_clients import ai_api_key_configured
+from ynamazon.date_range import DateRange
 from ynamazon.exceptions import YnabSetupError
 from ynamazon.settings import settings
 from ynamazon.ynab_categories import get_budget_categories, is_uncategorized
@@ -151,12 +152,16 @@ def process_transactions(  # noqa: C901
     budget_id: str | None = None,
     force_refresh_amazon: bool = False,
     needs_category: bool = False,
+    date_range: DateRange | None = None,
 ) -> None:
     """Match YNAB transactions to Amazon Transactions and optionally update YNAB Memos.
 
     With `needs_category`, process uncategorized transactions for both Amazon payees instead, including ones
     whose memo was already processed, and suggest categories for them. Transactions that still need a memo
     get the memo prompt too.
+
+    With `date_range`, only YNAB transactions dated within it are processed, and Amazon orders and
+    transactions are retrieved to cover it instead of the default window.
     """
     amazon_config = amazon_config or AmazonConfig()
     ynab_config = ynab_config or ynab_configuration
@@ -170,9 +175,18 @@ def process_transactions(  # noqa: C901
         )
         return
 
-    amazon_retriever = AmazonTransactionRetriever(
-        amazon_config=amazon_config, force_refresh_amazon=force_refresh_amazon
-    )
+    if date_range is None:
+        amazon_retriever = AmazonTransactionRetriever(
+            amazon_config=amazon_config, force_refresh_amazon=force_refresh_amazon
+        )
+    else:
+        console.print(f"[cyan]Processing transactions from {date_range.since} to {date_range.until}.[/]")
+        amazon_retriever = AmazonTransactionRetriever(
+            amazon_config=amazon_config,
+            order_years=date_range.amazon_order_years(),
+            transaction_days=date_range.amazon_transaction_days(),
+            force_refresh_amazon=force_refresh_amazon,
+        )
 
     # In needs-category mode, only transactions with this payee still need a memo
     needs_memo_payee_id: str | None = None
@@ -180,18 +194,33 @@ def process_transactions(  # noqa: C901
         if needs_category:
             # Older transactions can't be matched to the Amazon transactions that get retrieved. The extra
             # days allow for YNAB dating a charge a little earlier than Amazon's completed date.
-            since_date = date.today() - timedelta(days=amazon_retriever.transaction_days + NEEDS_CATEGORY_DATE_BUFFER_DAYS)
+            if date_range is None:
+                since_date = date.today() - timedelta(
+                    days=amazon_retriever.transaction_days + NEEDS_CATEGORY_DATE_BUFFER_DAYS
+                )
+            else:
+                since_date = date_range.since
             ynab_trans, amazon_needs_memo_payee, amazon_with_memo_payee = get_uncategorized_ynab_transactions(
                 configuration=ynab_config, budget_id=budget_id, since_date=since_date
             )
             needs_memo_payee_id = amazon_needs_memo_payee.id
         else:
             ynab_trans, amazon_with_memo_payee = get_ynab_transactions(
-                configuration=ynab_config, budget_id=budget_id
+                configuration=ynab_config,
+                budget_id=budget_id,
+                since_date=date_range.since if date_range else None,
             )
     except YnabSetupError:
         console.print("[bold red]No matching Transactions found in YNAB. Exiting.[/]")
         return
+
+    if date_range is not None:
+        # YNAB can only filter by start date, so apply the end of the range here
+        ynab_trans.filter(lambda t: date_range.contains(t.var_date))
+        if not ynab_trans:
+            console.print("[green]No Amazon transactions to process in YNAB for this date range.[/]")
+            return
+        console.print(f"[green]{len(ynab_trans)} YNAB transactions in this date range.[/]")
 
     if needs_category:
         if not ynab_trans:
@@ -201,6 +230,9 @@ def process_transactions(  # noqa: C901
 
     console.print("[cyan]Starting search for Amazon transactions...[/]")
     amazon_trans = amazon_retriever.get_amazon_transactions()
+    if date_range is not None:
+        # Amazon can only limit transactions by how far back to go, so apply the end of the range here
+        amazon_trans = [a_tran for a_tran in amazon_trans if date_range.contains_amazon(a_tran.completed_date)]
 
     console.print(f"[green]{len(amazon_trans)} Amazon transactions retrieved successfully.[/]")
 

@@ -13,7 +13,7 @@ from amazonorders.session import AmazonSession
 from amazonorders.transactions import AmazonTransactions
 from cache_decorator import Cache
 from loguru import logger
-from pydantic import AnyUrl, BaseModel, EmailStr, Field, SecretStr, field_validator
+from pydantic import AnyUrl, BaseModel, ConfigDict, EmailStr, Field, SecretStr, field_validator
 from rich import print as rprint
 from rich.table import Table
 
@@ -63,6 +63,9 @@ class AmazonConfig(BaseModel):
         username (EmailStr): Amazon account email.
         password (SecretStr): Amazon account password.
     """
+
+    # Reject unknown fields so a misplaced option raises instead of being silently dropped
+    model_config = ConfigDict(extra="forbid")
 
     username: EmailStr = Field(default_factory=lambda: settings.amazon_user)
     password: SecretStr = Field(default_factory=lambda: settings.amazon_password)

@@ -3,12 +3,14 @@ from typing import Annotated
 
 from rich import print as rprint
 from rich.console import Console
+from rich.prompt import Confirm
 from rich.table import Table
-from typer import Argument, Context, Option, Typer
+from typer import Argument, BadParameter, Context, Exit, Option, Typer
 from typer import run as typer_run
 from ynab.configuration import Configuration
 
 from ynamazon.amazon_transactions import AmazonConfig, AmazonTransactionRetriever
+from ynamazon.date_range import LARGE_RANGE_MONTHS, DateRange, DateRangeError
 from ynamazon.main import process_transactions
 from ynamazon.settings import settings
 from ynamazon.ynab_transactions import get_ynab_transactions
@@ -179,6 +181,22 @@ def ynamazon(
             is_flag=True,
         ),
     ] = False,
+    since: Annotated[
+        str | None,
+        Option(
+            "--since",
+            help="Only process transactions on or after this date (YYYYMMDD)",
+            metavar="YYYYMMDD",
+        ),
+    ] = None,
+    until: Annotated[
+        str | None,
+        Option(
+            "--until",
+            help="Only process transactions on or before this date (YYYYMMDD); defaults to today",
+            metavar="YYYYMMDD",
+        ),
+    ] = None,
 ) -> None:
     """
     [bold cyan](Default) Match YNAB transactions to Amazon Transactions and optionally update YNAB Memos.[/]
@@ -188,16 +206,35 @@ def ynamazon(
     # Store the flag in the Typer context for use in commands
     ctx.obj = {"force_refresh_amazon": force_refresh_amazon}
 
+    date_range = _resolve_date_range(since, until)
+
     process_transactions(
-        amazon_config=AmazonConfig(
-            username=amazon_user,
-            password=amazon_password,
-            force_refresh_amazon=ctx.obj["force_refresh_amazon"],
-        ),  # type: ignore[arg-type]
+        amazon_config=AmazonConfig(username=amazon_user, password=amazon_password),  # type: ignore[arg-type]
         ynab_config=Configuration(access_token=ynab_api_key),
         budget_id=ynab_budget_id,
+        force_refresh_amazon=ctx.obj["force_refresh_amazon"],
         needs_category=needs_category,
+        date_range=date_range,
     )
+
+
+def _resolve_date_range(since: str | None, until: str | None) -> DateRange | None:
+    """Validates --since/--until and confirms ranges longer than LARGE_RANGE_MONTHS months."""
+    try:
+        date_range = DateRange.from_options(since, until)
+    except DateRangeError as e:
+        raise BadParameter(str(e)) from e
+
+    if date_range is not None and date_range.is_large():
+        confirmed = Confirm.ask(
+            f"[bold yellow]{date_range.since} to {date_range.until} is more than {LARGE_RANGE_MONTHS} months "
+            f"({date_range.days} days). Retrieving that much Amazon history can take a while. Continue?[/]"
+        )
+        if not confirmed:
+            rprint("[yellow]Cancelled.[/]")
+            raise Exit()
+
+    return date_range
 
 
 @cli.callback(invoke_without_command=True)
@@ -219,6 +256,22 @@ def yna_callback(
             is_flag=True,
         ),
     ] = False,
+    since: Annotated[
+        str | None,
+        Option(
+            "--since",
+            help="Only process transactions on or after this date (YYYYMMDD)",
+            metavar="YYYYMMDD",
+        ),
+    ] = None,
+    until: Annotated[
+        str | None,
+        Option(
+            "--until",
+            help="Only process transactions on or before this date (YYYYMMDD); defaults to today",
+            metavar="YYYYMMDD",
+        ),
+    ] = None,
 ) -> None:
     """
     [bold cyan]Run 'yna' to match and update transactions using the arguements in .env. [/]
