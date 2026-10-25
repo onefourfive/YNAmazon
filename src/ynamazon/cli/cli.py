@@ -17,6 +17,15 @@ from ynamazon.ynab_transactions import get_ynab_transactions
 
 from . import utils
 
+OneKeyOption = Annotated[
+    bool,
+    Option(
+        "--one-key",
+        help="Answer y/n prompts with a single key press, without Enter",
+        is_flag=True,
+    ),
+]
+
 cli = Typer(rich_markup_mode="rich")
 cli.add_typer(utils.app, name="utils", help="[bold cyan]Utility commands[/]")
 
@@ -197,14 +206,7 @@ def ynamazon(
             metavar="YYYYMMDD",
         ),
     ] = None,
-    one_key: Annotated[
-        bool,
-        Option(
-            "--one-key",
-            help="Answer y/n prompts with a single key press, without Enter",
-            is_flag=True,
-        ),
-    ] = False,
+    one_key: OneKeyOption = False,
 ) -> None:
     """
     [bold cyan](Default) Match YNAB transactions to Amazon Transactions and optionally update YNAB Memos.[/]
@@ -214,7 +216,9 @@ def ynamazon(
     # Store the flag in the Typer context for use in commands
     ctx.obj = {"force_refresh_amazon": force_refresh_amazon}
 
-    set_one_key(one_key)
+    # `yna --one-key ynamazon` sets this in the yna callback, so only ever turn it on here
+    if one_key:
+        set_one_key(True)
     date_range = _resolve_date_range(since, until)
 
     process_transactions(
@@ -281,14 +285,7 @@ def yna_callback(
             metavar="YYYYMMDD",
         ),
     ] = None,
-    one_key: Annotated[
-        bool,
-        Option(
-            "--one-key",
-            help="Answer y/n prompts with a single key press, without Enter",
-            is_flag=True,
-        ),
-    ] = False,
+    one_key: OneKeyOption = False,
 ) -> None:
     """
     [bold cyan]Run 'yna' to match and update transactions using the arguements in .env. [/]
@@ -297,6 +294,7 @@ def yna_callback(
     """
     # Store the flag in the Typer context for use in commands
     ctx.obj = {"force_refresh_amazon": force_refresh_amazon, "needs_category": needs_category}
+    set_one_key(one_key)
 
     rprint("[bold cyan]Starting YNAmazon processing...[/]")
     if ctx.invoked_subcommand is None:
