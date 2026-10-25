@@ -12,7 +12,7 @@ from ynab.exceptions import ApiException
 from ynamazon.amazon_transactions import (
     AmazonConfig,
     AmazonTransactionRetriever,
-    locate_amazon_transaction_by_amount,
+    find_amazon_transaction,
 )
 from ynamazon.ai_categorization import suggest_categorization
 from ynamazon.ai_clients import ai_api_key_configured
@@ -221,23 +221,16 @@ def process_transactions(  # noqa: C901
         )
         # because YNAB uses "milliunits" for amounts, we need to convert to dollars
         logger.debug(f"YNAB transaction amount [dollars]: {ynab_tran.amount_decimal}")
-        amazon_tran_index = locate_amazon_transaction_by_amount(
-            amazon_trans=amazon_trans, amount=ynab_tran.amount_decimal
+        amazon_tran = find_amazon_transaction(
+            amazon_trans=amazon_trans, amount=ynab_tran.amount_decimal, on_date=ynab_tran.var_date
         )
-        if amazon_tran_index is None:
+        if amazon_tran is None:
             console.print("[bold yellow]**** Could not find a matching Amazon Transaction![/]")
             continue
 
-        amazon_tran = amazon_trans[amazon_tran_index]
         console.print(
             f"[green]Matching Amazon Transaction:[/] {amazon_tran.completed_date} ${amazon_tran.transaction_total:.2f}"
         )
-
-        memo_needed = needs_memo_payee_id is None or ynab_tran.payee_id == needs_memo_payee_id
-        if memo_needed:
-            memo = build_memo(console, amazon_tran)
-        else:
-            console.print("[dim]Memo already processed; only suggesting a category.[/]")
 
         if amazon_tran.completed_date != ynab_tran.var_date:
             console.print(
@@ -250,9 +243,12 @@ def process_transactions(  # noqa: C901
             if not continue_match:
                 console.print("[yellow]Skipping this transaction...[/]")
                 continue
-            else:
-                _ = amazon_trans.pop(amazon_tran_index)
-                console.log("Removing matched transaction from search")
+
+        memo_needed = needs_memo_payee_id is None or ynab_tran.payee_id == needs_memo_payee_id
+        if memo_needed:
+            memo = build_memo(console, amazon_tran)
+        else:
+            console.print("[dim]Memo already processed; only suggesting a category.[/]")
 
         update_fields: dict[str, Any] = {}
         if memo_needed:
@@ -285,6 +281,9 @@ def process_transactions(  # noqa: C901
             budget_id=budget_id,
             **update_fields,
         )
+
+        # This Amazon transaction is now accounted for, so later YNAB transactions can't match it too
+        amazon_trans = [a_tran for a_tran in amazon_trans if a_tran is not amazon_tran]
         console.print("\n\n")
 
 

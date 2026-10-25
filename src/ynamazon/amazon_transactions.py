@@ -264,24 +264,34 @@ def _truncate_title(title: str, max_length: int = 20) -> str:
     return title
 
 
-def locate_amazon_transaction_by_amount(
-    amazon_trans: list[AmazonTransactionWithOrderInfo], amount: Union[float, Decimal]
-) -> Union[int, None]:
-    """Given an amount, locate a matching Amazon transaction.
+def find_amazon_transaction(
+    amazon_trans: list[AmazonTransactionWithOrderInfo],
+    amount: Union[float, Decimal],
+    on_date: Union[date, None] = None,
+) -> Union[AmazonTransactionWithOrderInfo, None]:
+    """Find the Amazon transaction that matches a YNAB transaction's amount.
+
+    When several Amazon transactions have the same amount, one completed on `on_date` is preferred.
+    Otherwise the first one with that amount is returned.
 
     Args:
         amazon_trans (list[TransactionWithOrderInfo]): A list of Amazon transactions
-        amount (int): An amount to match
+        amount (float | Decimal): The YNAB transaction amount (negative for outflows)
+        on_date (date | None): The YNAB transaction date
 
     Returns:
-        int | None: Index of matched transaction in `amazon_trans` or None if no match
+        TransactionWithOrderInfo | None: The matching Amazon transaction, or None if no match
     """
     amount = Decimal(amount)
-    for idx, a_tran in enumerate(amazon_trans):
-        if a_tran.transaction_total == -amount:
-            return idx
+    matches = [a_tran for a_tran in amazon_trans if a_tran.transaction_total == -amount]
+    if not matches:
+        return None
 
-    return None
+    for a_tran in matches:
+        if a_tran.completed_date == on_date:
+            return a_tran
+
+    return matches[0]
 
 
 # if __name__ == "__main__":
