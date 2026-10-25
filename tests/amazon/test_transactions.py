@@ -30,12 +30,16 @@ def _item(title: str | None = None) -> Item:
     return item
 
 
-def _order(order_number: str, placed: date, grand_total: float = 100.00, item_count: int = 1) -> Order:
+def _order(
+    order_number: str, placed: date, grand_total: float = 100.00, item_count: int = 1
+) -> Order:
     order = MagicMock(spec=Order)
     order.order_number = order_number
     order.order_placed_date = placed
     order.grand_total = grand_total
-    order.order_details_link = f"https://www.amazon.com/gp/your-account/order-details?orderID={order_number}"
+    order.order_details_link = (
+        f"https://www.amazon.com/gp/your-account/order-details?orderID={order_number}"
+    )
     order.items = [_item() for _ in range(item_count)]
     return order
 
@@ -70,13 +74,17 @@ def amazon_transactions(session):
 
 
 def _retriever(**kwargs) -> AmazonTransactionRetriever:
-    return AmazonTransactionRetriever(amazon_config=AmazonConfig(username="test@example.com", password="x"), **kwargs)
+    return AmazonTransactionRetriever(
+        amazon_config=AmazonConfig(username="test@example.com", password="x"), **kwargs
+    )
 
 
 # Years
 
 
-@pytest.mark.parametrize(("years", "expected"), [(["21", "2022"], ["2021", "2022"]), (["2026"], ["2026"])])
+@pytest.mark.parametrize(
+    ("years", "expected"), [(["21", "2022"], ["2021", "2022"]), (["2026"], ["2026"])]
+)
 def test_normalized_years(years, expected):
     assert AmazonTransactionRetriever._normalized_years(years) == expected
 
@@ -121,7 +129,9 @@ def test_orders_default_to_current_year(amazon_orders):
 
 
 def test_orders_keep_all_items(amazon_orders):
-    amazon_orders.return_value.get_orders.return_value = [_order("567", date(2023, 1, 1), item_count=5)]
+    amazon_orders.return_value.get_orders.return_value = [
+        _order("567", date(2023, 1, 1), item_count=5)
+    ]
 
     orders = _retriever(order_years=["2023"])._amazon_orders()
 
@@ -174,8 +184,12 @@ def test_amazon_transactions_are_joined_to_their_orders(amazon_orders, amazon_tr
 
 @pytest.mark.parametrize(("force_refresh", "use_cache"), [(True, False), (False, True)])
 def test_force_refresh_bypasses_cache(force_refresh, use_cache):
-    retriever = _retriever(order_years=["2026"], transaction_days=10, force_refresh_amazon=force_refresh)
-    with patch.object(AmazonTransactionRetriever, "_get_amazon_transactions", return_value=[]) as cached:
+    retriever = _retriever(
+        order_years=["2026"], transaction_days=10, force_refresh_amazon=force_refresh
+    )
+    with patch.object(
+        AmazonTransactionRetriever, "_get_amazon_transactions", return_value=[]
+    ) as cached:
         retriever.get_amazon_transactions()
 
     kwargs = cached.call_args.kwargs
@@ -209,6 +223,8 @@ def test_session_logs_in_once(session):
 def test_unauthenticated_session_raises():
     amazon_session = MagicMock(spec=AmazonSession)
     amazon_session.is_authenticated = False
-    with patch.object(AmazonConfig, "amazon_session", return_value=amazon_session), \
-         pytest.raises(AmazonLoginError, match="isn't authenticated"):
+    with (
+        patch.object(AmazonConfig, "amazon_session", return_value=amazon_session),
+        pytest.raises(AmazonLoginError, match="isn't authenticated"),
+    ):
         _retriever()._session()

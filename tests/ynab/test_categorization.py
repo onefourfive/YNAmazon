@@ -20,7 +20,9 @@ from ynamazon.ynab_categories import get_budget_categories, is_uncategorized
 from ynamazon.ynab_transactions import update_ynab_transaction
 
 
-def _category(category_id: str, name: str, group: str = "Everyday", note: str | None = None) -> Mock:
+def _category(
+    category_id: str, name: str, group: str = "Everyday", note: str | None = None
+) -> Mock:
     category = Mock()
     category.id = category_id
     category.name = name
@@ -39,7 +41,9 @@ def _item(title: str, price: float | None, quantity: int | None = 1) -> Mock:
     return item
 
 
-def _amazon_tran(items: list[Mock], transaction_total: str = "30.00", order_total: str = "30.00") -> Mock:
+def _amazon_tran(
+    items: list[Mock], transaction_total: str = "30.00", order_total: str = "30.00"
+) -> Mock:
     amazon_tran = Mock()
     amazon_tran.items = items
     amazon_tran.transaction_total = Decimal(transaction_total)
@@ -47,7 +51,9 @@ def _amazon_tran(items: list[Mock], transaction_total: str = "30.00", order_tota
     return amazon_tran
 
 
-def _ynab_tran(amount: int = -30000, category_id: str | None = None, category_name: str | None = None) -> Mock:
+def _ynab_tran(
+    amount: int = -30000, category_id: str | None = None, category_name: str | None = None
+) -> Mock:
     ynab_tran = Mock()
     ynab_tran.amount = amount
     ynab_tran.category_id = category_id
@@ -55,10 +61,15 @@ def _ynab_tran(amount: int = -30000, category_id: str | None = None, category_na
     return ynab_tran
 
 
-CATEGORIES = [_category("cat-groceries", "Groceries"), _category("cat-pets", "Pets", note="Food and vet")]
+CATEGORIES = [
+    _category("cat-groceries", "Groceries"),
+    _category("cat-pets", "Pets", note="Food and vet"),
+]
 
 
-def _response(*pairs: tuple[int, int], reason: str = "Matched items to categories.") -> CategorizationResponse:
+def _response(
+    *pairs: tuple[int, int], reason: str = "Matched items to categories."
+) -> CategorizationResponse:
     return CategorizationResponse(
         assignments=[ItemAssignment(item=item, category=category) for item, category in pairs],
         reason=reason,
@@ -126,7 +137,9 @@ def openai_settings():
     settings.openai_api_key = original_key
 
 
-def _suggest(response: CategorizationResponse | None, amazon_tran: Mock, ynab_tran: Mock | None = None):
+def _suggest(
+    response: CategorizationResponse | None, amazon_tran: Mock, ynab_tran: Mock | None = None
+):
     with patch("ynamazon.ai_categorization._anthropic_categorization", return_value=response):
         return suggest_categorization(amazon_tran, ynab_tran or _ynab_tran(), CATEGORIES)
 
@@ -159,7 +172,10 @@ def test_suggest_single_category(anthropic_settings):
 
 def test_partial_order_uses_category_with_largest_share(anthropic_settings):
     items = [_item("Rice", 10.00), _item("Dog food", 25.00)]
-    suggestion = _suggest(_response((1, 1), (2, 2)), _amazon_tran(items, transaction_total="12.00", order_total="35.00"))
+    suggestion = _suggest(
+        _response((1, 1), (2, 2)),
+        _amazon_tran(items, transaction_total="12.00", order_total="35.00"),
+    )
 
     assert suggestion is not None and not suggestion.is_split
     assert suggestion.update_kwargs() == {"category_id": "cat-pets"}
@@ -210,7 +226,9 @@ def test_anthropic_request(anthropic_settings):
     with patch("ynamazon.ai_clients.Anthropic") as mock_anthropic:
         create = mock_anthropic.return_value.beta.messages.create
         create.return_value = _anthropic_message(payload)
-        suggestion = suggest_categorization(_amazon_tran([_item("Dog food", 30.00)]), _ynab_tran(), CATEGORIES)
+        suggestion = suggest_categorization(
+            _amazon_tran([_item("Dog food", 30.00)]), _ynab_tran(), CATEGORIES
+        )
 
     assert suggestion is not None
     assert suggestion.update_kwargs() == {"category_id": "cat-pets"}
@@ -228,15 +246,21 @@ def test_anthropic_refusal_error_and_bad_json(anthropic_settings):
     amazon_tran = _amazon_tran([_item("Dog food", 30.00)])
 
     with patch("ynamazon.ai_clients.Anthropic") as mock_anthropic:
-        mock_anthropic.return_value.beta.messages.create.return_value = _anthropic_message("", stop_reason="refusal")
+        mock_anthropic.return_value.beta.messages.create.return_value = _anthropic_message(
+            "", stop_reason="refusal"
+        )
         assert suggest_categorization(amazon_tran, _ynab_tran(), CATEGORIES) is None
 
     with patch("ynamazon.ai_clients.Anthropic") as mock_anthropic:
-        mock_anthropic.return_value.beta.messages.create.side_effect = anthropic.APIConnectionError(request=Mock())
+        mock_anthropic.return_value.beta.messages.create.side_effect = anthropic.APIConnectionError(
+            request=Mock()
+        )
         assert suggest_categorization(amazon_tran, _ynab_tran(), CATEGORIES) is None
 
     with patch("ynamazon.ai_clients.Anthropic") as mock_anthropic:
-        mock_anthropic.return_value.beta.messages.create.return_value = _anthropic_message("not json")
+        mock_anthropic.return_value.beta.messages.create.return_value = _anthropic_message(
+            "not json"
+        )
         assert suggest_categorization(amazon_tran, _ynab_tran(), CATEGORIES) is None
 
 
@@ -245,7 +269,9 @@ def test_openai_request(openai_settings):
         parse = mock_openai.return_value.beta.chat.completions.parse
         parse.return_value.choices = [Mock()]
         parse.return_value.choices[0].message.parsed = _response((1, 1))
-        suggestion = suggest_categorization(_amazon_tran([_item("Rice", 30.00)]), _ynab_tran(), CATEGORIES)
+        suggestion = suggest_categorization(
+            _amazon_tran([_item("Rice", 30.00)]), _ynab_tran(), CATEGORIES
+        )
 
     assert suggestion is not None
     assert suggestion.update_kwargs() == {"category_id": "cat-groceries"}
@@ -255,7 +281,10 @@ def test_openai_request(openai_settings):
         parse = mock_openai.return_value.beta.chat.completions.parse
         parse.return_value.choices = [Mock()]
         parse.return_value.choices[0].message.parsed = None  # refusal
-        assert suggest_categorization(_amazon_tran([_item("Rice", 30.00)]), _ynab_tran(), CATEGORIES) is None
+        assert (
+            suggest_categorization(_amazon_tran([_item("Rice", 30.00)]), _ynab_tran(), CATEGORIES)
+            is None
+        )
 
 
 # YNAB categories
@@ -282,7 +311,10 @@ def test_get_budget_categories_filters_hidden_deleted_and_internal():
         group("Everyday", [groceries, hidden, deleted]),
     ]
 
-    with patch("ynamazon.ynab_categories.ApiClient"), patch("ynamazon.ynab_categories.CategoriesApi") as mock_api:
+    with (
+        patch("ynamazon.ynab_categories.ApiClient"),
+        patch("ynamazon.ynab_categories.CategoriesApi") as mock_api,
+    ):
         mock_api.return_value.get_categories.return_value = response
         categories = get_budget_categories(configuration=Mock(), budget_id="budget")
 
@@ -292,10 +324,19 @@ def test_get_budget_categories_filters_hidden_deleted_and_internal():
 
 @pytest.mark.parametrize(
     ("category_id", "category_name", "expected"),
-    [(None, None, True), ("u", "Uncategorized", True), ("g", "Groceries", False), (None, "Split", True), ("s", "Split", False)],
+    [
+        (None, None, True),
+        ("u", "Uncategorized", True),
+        ("g", "Groceries", False),
+        (None, "Split", True),
+        ("s", "Split", False),
+    ],
 )
 def test_is_uncategorized(category_id, category_name, expected):
-    assert is_uncategorized(_ynab_tran(category_id=category_id, category_name=category_name)) is expected
+    assert (
+        is_uncategorized(_ynab_tran(category_id=category_id, category_name=category_name))
+        is expected
+    )
 
 
 # update_ynab_transaction
@@ -317,9 +358,13 @@ def _existing_transaction() -> Mock:
 
 
 def _sent_transaction(**kwargs):
-    with patch("ynamazon.ynab_transactions.ApiClient", MagicMock()), \
-         patch("ynamazon.ynab_transactions.TransactionsApi") as mock_api:
-        update_ynab_transaction(_existing_transaction(), configuration=Mock(), budget_id="budget", **kwargs)
+    with (
+        patch("ynamazon.ynab_transactions.ApiClient", MagicMock()),
+        patch("ynamazon.ynab_transactions.TransactionsApi") as mock_api,
+    ):
+        update_ynab_transaction(
+            _existing_transaction(), configuration=Mock(), budget_id="budget", **kwargs
+        )
     return mock_api.return_value.update_transaction.call_args.kwargs["data"].transaction
 
 
@@ -344,7 +389,11 @@ def test_update_split():
 
 def test_update_memo_and_category_together():
     sent = _sent_transaction(memo="new memo", payee_id="payee-done", category_id="cat-groceries")
-    assert (sent.memo, sent.payee_id, sent.category_id) == ("new memo", "payee-done", "cat-groceries")
+    assert (sent.memo, sent.payee_id, sent.category_id) == (
+        "new memo",
+        "payee-done",
+        "cat-groceries",
+    )
 
 
 # ask_for_categorization
@@ -355,15 +404,19 @@ def _ask(amazon_tran: Mock, suggestion, confirm: bool = True):
 
     retriever = Mock()
     retriever.get_order_items.return_value = [_item("Rice", 10.00), _item("Dog food", 20.00)]
-    with patch("ynamazon.main.suggest_categorization", return_value=suggestion) as mock_suggest, \
-         patch("ynamazon.main.Confirm.ask", return_value=confirm):
+    with (
+        patch("ynamazon.main.suggest_categorization", return_value=suggestion) as mock_suggest,
+        patch("ynamazon.main.Confirm.ask", return_value=confirm),
+    ):
         result = ask_for_categorization(Mock(), amazon_tran, _ynab_tran(), CATEGORIES, retriever)
     return result, retriever, mock_suggest
 
 
 def _priced_copy(amazon_tran: Mock) -> Mock:
     copy = _amazon_tran([])
-    amazon_tran.model_copy.side_effect = lambda update: copy.configure_mock(items=update["items"]) or copy
+    amazon_tran.model_copy.side_effect = (
+        lambda update: copy.configure_mock(items=update["items"]) or copy
+    )
     return copy
 
 
@@ -382,7 +435,9 @@ def test_ask_fetches_prices_for_multi_item_whole_order():
     "amazon_tran",
     [
         _amazon_tran([_item("Rice", None)]),  # single item
-        _amazon_tran([_item("Rice", None), _item("Dog food", None)], transaction_total="12.00"),  # partial order
+        _amazon_tran(
+            [_item("Rice", None), _item("Dog food", None)], transaction_total="12.00"
+        ),  # partial order
         _amazon_tran([_item("Rice", 10.00), _item("Dog food", 20.00)]),  # prices already known
     ],
 )
@@ -394,7 +449,9 @@ def test_ask_skips_price_fetch_when_split_not_possible_or_not_needed(amazon_tran
 def test_ask_returns_update_fields_only_when_accepted():
     from ynamazon.ai_categorization import CategorySuggestion, SuggestedSplit
 
-    suggestion = CategorySuggestion(splits=[SuggestedSplit(CATEGORIES[0], -30000, ["Rice"])], reason="Food.")
+    suggestion = CategorySuggestion(
+        splits=[SuggestedSplit(CATEGORIES[0], -30000, ["Rice"])], reason="Food."
+    )
     amazon_tran = _amazon_tran([_item("Rice", 30.00)])
 
     assert _ask(amazon_tran, suggestion, confirm=True)[0] == {"category_id": "cat-groceries"}

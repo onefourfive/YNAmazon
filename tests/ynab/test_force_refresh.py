@@ -25,11 +25,15 @@ def test_cli_passes_force_refresh_to_process_transactions(args, expected):
 
 @pytest.mark.parametrize("date_range", [None, DateRange.from_options("20261001", "20261015")])
 def test_process_transactions_passes_force_refresh_to_retriever(date_range):
-    with patch("ynamazon.main.get_ynab_transactions") as get_ynab, \
-         patch("ynamazon.main.AmazonTransactionRetriever") as retriever:
+    with (
+        patch("ynamazon.main.get_ynab_transactions") as get_ynab,
+        patch("ynamazon.main.AmazonTransactionRetriever") as retriever,
+    ):
         get_ynab.return_value = (TempYnabTransactions(root=[]), Mock(id="payee-processed"))
         retriever.return_value.get_amazon_transactions.return_value = []
-        process_transactions(ynab_config=Mock(), budget_id="budget", force_refresh_amazon=True, date_range=date_range)
+        process_transactions(
+            ynab_config=Mock(), budget_id="budget", force_refresh_amazon=True, date_range=date_range
+        )
 
     assert retriever.call_args.kwargs["force_refresh_amazon"] is True
 

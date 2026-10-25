@@ -78,7 +78,11 @@ def ask_for_categorization(
     # Splits are calculated from item prices, which only the order details page has. A split is only
     # possible for a multi-item charge that covers the whole order, so only fetch details then.
     whole_order = amazon_tran.transaction_total == amazon_tran.order_total
-    if whole_order and len(amazon_tran.items) > 1 and any(item.price is None for item in amazon_tran.items):
+    if (
+        whole_order
+        and len(amazon_tran.items) > 1
+        and any(item.price is None for item in amazon_tran.items)
+    ):
         try:
             items = retriever.get_order_items(amazon_tran.order_number)
             amazon_tran = amazon_tran.model_copy(update={"items": items})
@@ -180,7 +184,9 @@ def process_transactions(  # noqa: C901
             amazon_config=amazon_config, force_refresh_amazon=force_refresh_amazon
         )
     else:
-        console.print(f"[cyan]Processing transactions from {date_range.since} to {date_range.until}.[/]")
+        console.print(
+            f"[cyan]Processing transactions from {date_range.since} to {date_range.until}.[/]"
+        )
         amazon_retriever = AmazonTransactionRetriever(
             amazon_config=amazon_config,
             order_years=date_range.amazon_order_years(),
@@ -200,8 +206,10 @@ def process_transactions(  # noqa: C901
                 )
             else:
                 since_date = date_range.since
-            ynab_trans, amazon_needs_memo_payee, amazon_with_memo_payee = get_uncategorized_ynab_transactions(
-                configuration=ynab_config, budget_id=budget_id, since_date=since_date
+            ynab_trans, amazon_needs_memo_payee, amazon_with_memo_payee = (
+                get_uncategorized_ynab_transactions(
+                    configuration=ynab_config, budget_id=budget_id, since_date=since_date
+                )
             )
             needs_memo_payee_id = amazon_needs_memo_payee.id
         else:
@@ -218,7 +226,9 @@ def process_transactions(  # noqa: C901
         # YNAB can only filter by start date, so apply the end of the range here
         ynab_trans.filter(lambda t: date_range.contains(t.var_date))
         if not ynab_trans:
-            console.print("[green]No Amazon transactions to process in YNAB for this date range.[/]")
+            console.print(
+                "[green]No Amazon transactions to process in YNAB for this date range.[/]"
+            )
             return
         console.print(f"[green]{len(ynab_trans)} YNAB transactions in this date range.[/]")
 
@@ -226,13 +236,17 @@ def process_transactions(  # noqa: C901
         if not ynab_trans:
             console.print("[green]No uncategorized Amazon transactions found in YNAB.[/]")
             return
-        console.print(f"[green]{len(ynab_trans)} uncategorized Amazon transactions found in YNAB.[/]")
+        console.print(
+            f"[green]{len(ynab_trans)} uncategorized Amazon transactions found in YNAB.[/]"
+        )
 
     console.print("[cyan]Starting search for Amazon transactions...[/]")
     amazon_trans = amazon_retriever.get_amazon_transactions()
     if date_range is not None:
         # Amazon can only limit transactions by how far back to go, so apply the end of the range here
-        amazon_trans = [a_tran for a_tran in amazon_trans if date_range.contains_amazon(a_tran.completed_date)]
+        amazon_trans = [
+            a_tran for a_tran in amazon_trans if date_range.contains_amazon(a_tran.completed_date)
+        ]
 
     console.print(f"[green]{len(amazon_trans)} Amazon transactions retrieved successfully.[/]")
 
@@ -244,7 +258,9 @@ def process_transactions(  # noqa: C901
             if needs_category:
                 console.print(f"[bold red]Couldn't load YNAB categories. Exiting: {e}[/]")
                 return
-            console.print(f"[bold red]Couldn't load YNAB categories; AI categorization is off for this run: {e}[/]")
+            console.print(
+                f"[bold red]Couldn't load YNAB categories; AI categorization is off for this run: {e}[/]"
+            )
 
     console.print("[cyan]Starting to look for matching transactions...[/]")
     for ynab_tran in ynab_trans:
@@ -297,10 +313,14 @@ def process_transactions(  # noqa: C901
         if categories is not None:
             if is_uncategorized(ynab_tran):
                 update_fields.update(
-                    ask_for_categorization(console, amazon_tran, ynab_tran, categories, amazon_retriever)
+                    ask_for_categorization(
+                        console, amazon_tran, ynab_tran, categories, amazon_retriever
+                    )
                 )
             else:
-                console.print(f"[dim]Already categorized as {ynab_tran.category_name}; skipping AI categorization.[/]")
+                console.print(
+                    f"[dim]Already categorized as {ynab_tran.category_name}; skipping AI categorization.[/]"
+                )
 
         if not update_fields:
             continue

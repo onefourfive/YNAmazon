@@ -164,7 +164,10 @@ def get_ynab_transactions(
     )
 
     ynab_transactions = TempYnabTransactions.get_by_payee(
-        amazon_needs_memo_payee, configuration=configuration, budget_id=budget_id, since_date=since_date
+        amazon_needs_memo_payee,
+        configuration=configuration,
+        budget_id=budget_id,
+        since_date=since_date,
     )
 
     ynab_transactions.filter(lambda t: not t.approved)

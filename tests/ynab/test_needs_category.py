@@ -21,7 +21,9 @@ NEEDS_MEMO = _payee("payee-needs-memo", "Amazon - Needs Memo")
 PROCESSED = _payee("payee-processed", "Amazon")
 
 
-def _ynab_tran(txn_id: str, payee_id: str, var_date: date, deleted: bool = False) -> TempYnabTransaction:
+def _ynab_tran(
+    txn_id: str, payee_id: str, var_date: date, deleted: bool = False
+) -> TempYnabTransaction:
     return TempYnabTransaction.model_validate(
         {
             "id": txn_id,
@@ -47,8 +49,10 @@ def test_get_uncategorized_fetches_both_payees():
     deleted = _ynab_tran("deleted", NEEDS_MEMO.id, date(2026, 10, 5), deleted=True)
     by_payee = {NEEDS_MEMO.id: [newer, deleted], PROCESSED.id: [older]}
 
-    with patch("ynamazon.ynab_transactions.get_amazon_payees", return_value=(NEEDS_MEMO, PROCESSED)), \
-         patch("ynamazon.ynab_transactions.TempYnabTransactions.get_by_payee") as get_by_payee:
+    with (
+        patch("ynamazon.ynab_transactions.get_amazon_payees", return_value=(NEEDS_MEMO, PROCESSED)),
+        patch("ynamazon.ynab_transactions.TempYnabTransactions.get_by_payee") as get_by_payee,
+    ):
         get_by_payee.side_effect = lambda payee, **kwargs: by_payee[payee.id]
         transactions, needs_memo, processed = get_uncategorized_ynab_transactions(
             configuration=Mock(), budget_id="budget", since_date=since
@@ -74,15 +78,17 @@ def flow():
         amazon_tran.transaction_total = Decimal("30.00")
         amazon_trans.append(amazon_tran)
 
-    with patch("ynamazon.main.ai_api_key_configured", return_value=True), \
-         patch("ynamazon.main.AmazonTransactionRetriever") as retriever, \
-         patch("ynamazon.main.get_uncategorized_ynab_transactions") as get_uncategorized, \
-         patch("ynamazon.main.get_ynab_transactions") as get_ynab, \
-         patch("ynamazon.main.get_budget_categories", return_value=[Mock()]), \
-         patch("ynamazon.main.build_memo", return_value="new memo") as build_memo, \
-         patch("ynamazon.main.ask_for_categorization", return_value={"category_id": "cat-1"}) as ask, \
-         patch("ynamazon.main.Confirm.ask", return_value=True) as confirm, \
-         patch("ynamazon.main.update_ynab_transaction") as update:
+    with (
+        patch("ynamazon.main.ai_api_key_configured", return_value=True),
+        patch("ynamazon.main.AmazonTransactionRetriever") as retriever,
+        patch("ynamazon.main.get_uncategorized_ynab_transactions") as get_uncategorized,
+        patch("ynamazon.main.get_ynab_transactions") as get_ynab,
+        patch("ynamazon.main.get_budget_categories", return_value=[Mock()]),
+        patch("ynamazon.main.build_memo", return_value="new memo") as build_memo,
+        patch("ynamazon.main.ask_for_categorization", return_value={"category_id": "cat-1"}) as ask,
+        patch("ynamazon.main.Confirm.ask", return_value=True) as confirm,
+        patch("ynamazon.main.update_ynab_transaction") as update,
+    ):
         retriever.return_value.transaction_days = 31
         retriever.return_value.get_amazon_transactions.return_value = amazon_trans
         get_uncategorized.return_value = ([needs_memo_tran, processed_tran], NEEDS_MEMO, PROCESSED)

@@ -93,7 +93,9 @@ class DateRange:
             since_date = max(until_date - timedelta(days=DEFAULT_RANGE_DAYS), EARLIEST_DATE)
 
         if since_date > until_date:
-            raise DateRangeError(f"--since {since_date:%Y%m%d} is after --until {until_date:%Y%m%d}")
+            raise DateRangeError(
+                f"--since {since_date:%Y%m%d} is after --until {until_date:%Y%m%d}"
+            )
 
         return cls(since=since_date, until=until_date)
 
