@@ -356,7 +356,7 @@ def _ask(amazon_tran: Mock, suggestion, confirm: bool = True):
     retriever = Mock()
     retriever.get_order_items.return_value = [_item("Rice", 10.00), _item("Dog food", 20.00)]
     with patch("ynamazon.main.suggest_categorization", return_value=suggestion) as mock_suggest, \
-         patch("ynamazon.main.Confirm.ask", return_value=confirm):
+         patch("ynamazon.main.confirm", return_value=confirm):
         result = ask_for_categorization(Mock(), amazon_tran, _ynab_tran(), CATEGORIES, retriever)
     return result, retriever, mock_suggest
 

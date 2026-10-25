@@ -71,7 +71,7 @@ def run():
         with patch("ynamazon.main.get_ynab_transactions") as get_ynab, \
              patch("ynamazon.main.AmazonTransactionRetriever") as retriever, \
              patch("ynamazon.main.build_memo", side_effect=lambda console, a_tran: f"memo for {id(a_tran)}") as build_memo, \
-             patch("ynamazon.main.Confirm.ask", side_effect=answers) as confirm, \
+             patch("ynamazon.main.confirm", side_effect=answers) as confirm, \
              patch("ynamazon.main.update_ynab_transaction") as update, \
              patch("ynamazon.main.settings.use_ai_categorization", False):
             get_ynab.return_value = (ynab_trans, Mock(id="payee-processed"))

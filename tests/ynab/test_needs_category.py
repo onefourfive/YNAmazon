@@ -81,7 +81,7 @@ def flow():
          patch("ynamazon.main.get_budget_categories", return_value=[Mock()]), \
          patch("ynamazon.main.build_memo", return_value="new memo") as build_memo, \
          patch("ynamazon.main.ask_for_categorization", return_value={"category_id": "cat-1"}) as ask, \
-         patch("ynamazon.main.Confirm.ask", return_value=True) as confirm, \
+         patch("ynamazon.main.confirm", return_value=True) as confirm, \
          patch("ynamazon.main.update_ynab_transaction") as update:
         retriever.return_value.transaction_days = 31
         retriever.return_value.get_amazon_transactions.return_value = amazon_trans
