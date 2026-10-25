@@ -224,7 +224,7 @@ def process_transactions(  # noqa: C901
         amazon_tran_index = locate_amazon_transaction_by_amount(
             amazon_trans=amazon_trans, amount=ynab_tran.amount_decimal
         )
-        if not amazon_tran_index:
+        if amazon_tran_index is None:
             console.print("[bold yellow]**** Could not find a matching Amazon Transaction![/]")
             continue
 
