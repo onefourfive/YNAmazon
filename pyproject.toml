@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.9,<3.13"
 license = "MIT"
 dependencies = [
-    "amazon-orders>=3.2.15",
+    "amazon-orders>=5.1.0",
     "loguru>=0.7.3",
     "pydantic[email]>=2.11.2",
     "pydantic-settings>=2.8.1",
