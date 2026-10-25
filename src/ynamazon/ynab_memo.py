@@ -3,6 +3,8 @@
 from loguru import logger
 import re
 from typing import Optional
+import anthropic
+from anthropic import Anthropic
 from openai import OpenAI
 from openai import AuthenticationError, RateLimitError, APIError
 from ynamazon.settings import settings
@@ -11,7 +13,14 @@ from ynamazon.prompts import (
     AMAZON_SUMMARY_PLAIN_PROMPT,
     AMAZON_SUMMARY_MARKDOWN_PROMPT
 )
-from .exceptions import MissingOpenAIAPIKey, InvalidOpenAIAPIKey, OpenAIEmptyResponseError
+from .exceptions import (
+    MissingOpenAIAPIKey,
+    InvalidOpenAIAPIKey,
+    OpenAIEmptyResponseError,
+    MissingAnthropicAPIKey,
+    InvalidAnthropicAPIKey,
+    AnthropicEmptyResponseError,
+)
 
 # Constants
 YNAB_MEMO_LIMIT = 500  # YNAB's character limit for memos
@@ -24,7 +33,9 @@ def generate_ai_summary(
     transaction_amount: Optional[str] = None,
     max_length: int = YNAB_MEMO_LIMIT
 ) -> str | None:
-    """Uses OpenAI to generate a concise human-readable memo that fits within the character limit.
+    """Uses the configured AI provider to generate a concise human-readable memo that fits within the character limit.
+
+    The provider is selected by `settings.ai_provider` ("openai" or "anthropic").
 
     Args:
         items: List of item descriptions
@@ -37,18 +48,10 @@ def generate_ai_summary(
         A human-readable memo summarized by AI
 
     Raises:
-        MissingOpenAIAPIKey: If OpenAI API key is not found
-        InvalidOpenAIAPIKey: If OpenAI API key is invalid or authentication fails
-        OpenAIEmptyResponseError: If OpenAI returns an empty or invalid response
-        Exception: For other OpenAI API errors
+        MissingAIAPIKey: If the configured provider's API key is not found
+        InvalidAIAPIKey: If the configured provider's API key is invalid or authentication fails
+        AIEmptyResponseError: If the configured provider returns an empty or invalid response
     """
-    # Check if OpenAI key is available
-    if settings.openai_api_key is None or not settings.openai_api_key.get_secret_value():
-        raise MissingOpenAIAPIKey("OpenAI API key not found")
-
-    # Create client
-    client = OpenAI(api_key=settings.openai_api_key.get_secret_value())
-
     # Prepare content for summarization
     partial_order_note = ""
     if order_total and transaction_amount and order_total != transaction_amount:
@@ -63,13 +66,41 @@ def generate_ai_summary(
     # Add the items to the prompt
     full_prompt = f"{user_prompt}\n\nOrder Details:\n{items_text}"
 
+    if settings.ai_provider == "anthropic":
+        message_content = _anthropic_summary(full_prompt)
+    else:
+        message_content = _openai_summary(full_prompt)
+
+    if message_content is None:
+        return None
+
+    # Ensure the summary fits within the character limit
+    if len(message_content) > max_length:
+        message_content = message_content[:max_length]
+
+    # Add partial order note if needed
+    if partial_order_note:
+        message_content = f"{message_content} {partial_order_note}"
+
+    return message_content
+
+
+def _openai_summary(prompt: str) -> str | None:
+    """Get a memo summary from OpenAI. Returns None on recoverable API errors."""
+    # Check if OpenAI key is available
+    if settings.openai_api_key is None or not settings.openai_api_key.get_secret_value():
+        raise MissingOpenAIAPIKey("OpenAI API key not found")
+
+    # Create client
+    client = OpenAI(api_key=settings.openai_api_key.get_secret_value())
+
     try:
         # Get the response from OpenAI
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.openai_model,
             messages=[
                 {"role": "system", "content": AMAZON_SUMMARY_SYSTEM_PROMPT},
-                {"role": "user", "content": full_prompt}
+                {"role": "user", "content": prompt}
             ]
         )
     except AuthenticationError as e:
@@ -88,16 +119,50 @@ def generate_ai_summary(
     if not response.choices or not response.choices[0].message.content:
         raise OpenAIEmptyResponseError("OpenAI returned an empty response")
 
-    # Extract and validate the content
-    message_content = response.choices[0].message.content
+    return response.choices[0].message.content
 
-    # Ensure the summary fits within the character limit
-    if len(message_content) > max_length:
-        message_content = message_content[:max_length]
 
-    # Add partial order note if needed
-    if partial_order_note:
-        message_content = f"{message_content} {partial_order_note}"
+def _anthropic_summary(prompt: str) -> str | None:
+    """Get a memo summary from Anthropic's Claude API. Returns None on recoverable API errors."""
+    # Check if Anthropic key is available
+    if settings.anthropic_api_key is None or not settings.anthropic_api_key.get_secret_value():
+        raise MissingAnthropicAPIKey("Anthropic API key not found")
+
+    # Create client
+    client = Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
+
+    try:
+        # Get the response from Claude. A short summary doesn't need deep reasoning, so use low effort.
+        # If a safety classifier declines the request, the server retries it on a fallback model.
+        response = client.beta.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=16000,
+            system=AMAZON_SUMMARY_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+            output_config={"effort": "low"},
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+        )
+    except anthropic.AuthenticationError as e:
+        raise InvalidAnthropicAPIKey("Invalid Anthropic API key") from e
+    except anthropic.RateLimitError as e:
+        logger.error(f"Anthropic API rate limit exceeded: {e}")
+        return None
+    except anthropic.APIError as e:
+        logger.error(f"Anthropic API error: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error using Anthropic API: {e}")
+        return None
+
+    if response.stop_reason == "refusal":
+        logger.warning("Anthropic declined to summarize this memo")
+        return None
+
+    # The response can include thinking blocks; the memo is in the text blocks
+    message_content = "".join(block.text for block in response.content if block.type == "text").strip()
+    if not message_content:
+        raise AnthropicEmptyResponseError("Anthropic returned an empty response")
 
     return message_content
 
@@ -280,7 +345,7 @@ def process_memo(memo: str) -> str:
 
     The processing strategy is:
     1. If AI summarization is enabled (settings.use_ai_summarization):
-       - Uses OpenAI to generate a concise summary
+       - Uses the configured AI provider (OpenAI or Anthropic) to generate a concise summary
        - Preserves markdown formatting if enabled
        - Ensures the summary fits within YNAB's character limit
 

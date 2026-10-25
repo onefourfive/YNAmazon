@@ -25,8 +25,10 @@ A program to annotate YNAB transactions with Amazon order info
         YNAB_PAYEE_NAME_TO_BE_PROCESSED="Amazon - Needs Memo"
         YNAB_PAYEE_NAME_PROCESSING_COMPLETED=Amazon
         YNAB_USE_MARKDOWN=true/false
-        YNAB_USE_AI_SUMMARIZATION=true/false
+        USE_AI_SUMMARIZATION=true/false
+        AI_PROVIDER=openai/anthropic
         OPENAI_API_KEY=your-openai-api-key
+        ANTHROPIC_API_KEY=your-anthropic-api-key
         AMAZON_USER=your-amazon-email
         AMAZON_PASSWORD=your-amazon-password
         ```
@@ -58,7 +60,7 @@ This program automates the process of annotating YNAB transactions with detailed
    - A note if the transaction does not represent the full order total.
    - A list of items in the order.
    - A link to the Amazon order details.
-   - If AI summarization is enabled, it will use OpenAI to generate a concise summary of the order.
+   - If AI summarization is enabled, it will use OpenAI or Anthropic's Claude to generate a concise summary of the order.
 
 5. **Transaction Update**: The program updates the YNAB transaction with the generated memo and changes its payee to a designated name (e.g., "Amazon") to mark it as processed.
 
@@ -101,14 +103,17 @@ https://www.amazon.com/gp/css/summary/edit.html?orderID=321-7890123-4567890
 ```
 
 ## AI Summarization
-The program can use OpenAI's GPT model to generate concise summaries of your Amazon orders. To enable this feature:
+The program can use OpenAI or Anthropic's Claude to generate concise summaries of your Amazon orders. To enable this feature:
 
 1. Install the package with AI features:
    ```bash
    uv sync --extra ai
    ```
-2. Set `YNAB_USE_AI_SUMMARIZATION=true` in your `.env` file
-3. Add your OpenAI API key: `OPENAI_API_KEY=your-openai-api-key`
+2. Set `USE_AI_SUMMARIZATION=true` in your `.env` file
+3. Choose a provider with `AI_PROVIDER` (`openai` by default) and add that provider's API key:
+   - OpenAI: `AI_PROVIDER=openai` and `OPENAI_API_KEY=your-openai-api-key`
+   - Anthropic: `AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY=your-anthropic-api-key`
+4. Optionally override the model with `OPENAI_MODEL` (default `gpt-4o-mini`) or `ANTHROPIC_MODEL` (default `claude-opus-5-5`)
 
 When enabled, the program will:
 - Generate concise summaries of orders with multiple items
