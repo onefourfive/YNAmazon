@@ -84,6 +84,9 @@ yna --since 20260101 --until 20260331
 - Dates must be real `YYYYMMDD` dates, can't be in the future or before 1995, and `--since` can't be after `--until`.
 - Ranges longer than 6 months ask for confirmation first, since retrieving that much Amazon history can take a while.
 
+### Answering prompts faster
+Pass `--one-key` (with `yna` or `yna ynamazon`) to answer each y/n prompt with a single key press instead of typing `y` or `n` and pressing Enter. Other keys are ignored, and Ctrl-C still stops the program. When input is piped instead of typed, the normal prompts are used.
+
 ### Sample Memo Format
 
 For a transaction for an order with a single item, the memo format is as minimal as possible, for example:

@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any, override
 from loguru import logger
 from pydantic import BaseModel, Field
 from rich.console import Console
-from rich.prompt import Confirm
 from amazonorders.exception import AmazonOrdersError
 from rich.table import Table
 from ynab.exceptions import ApiException
@@ -16,6 +15,7 @@ from ynamazon.amazon_transactions import (
 )
 from ynamazon.ai_categorization import suggest_categorization
 from ynamazon.ai_clients import ai_api_key_configured
+from ynamazon.confirm import confirm
 from ynamazon.date_range import DateRange
 from ynamazon.exceptions import YnabSetupError
 from ynamazon.settings import settings
@@ -108,7 +108,7 @@ def ask_for_categorization(
         )
     console.print(table)
 
-    if not Confirm.ask("[bold cyan]Apply AI-suggested categorization?[/]", console=console):
+    if not confirm("[bold cyan]Apply AI-suggested categorization?[/]", console=console):
         console.print("[yellow]Skipping categorization...[/]")
         return {}
 
@@ -284,7 +284,7 @@ def process_transactions(  # noqa: C901
             console.print(
                 f"[yellow]**** The dates don't match! YNAB: {ynab_tran.var_date} Amazon: {amazon_tran.completed_date}[/]"
             )
-            continue_match = Confirm.ask(
+            continue_match = confirm(
                 "[bold red]Continue matching this transaction anyway?[/]",
                 console=console,
             )
@@ -300,7 +300,7 @@ def process_transactions(  # noqa: C901
 
         update_fields: dict[str, Any] = {}
         if memo_needed:
-            update_memo = Confirm.ask(
+            update_memo = confirm(
                 "[bold cyan]Update YNAB transaction memo?[/]", console=console
             )
             if update_memo:
