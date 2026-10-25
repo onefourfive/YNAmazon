@@ -3,6 +3,10 @@ class YnabSetupError(Exception):
 
     pass
 
+class AmazonLoginError(Exception):
+    """Raised when logging in to Amazon doesn't produce an authenticated session."""
+    pass
+
 class MissingAIAPIKey(Exception):
     """Raised when the API key for the configured AI provider is required but not found."""
     pass
