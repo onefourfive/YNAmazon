@@ -300,9 +300,7 @@ def process_transactions(  # noqa: C901
 
         update_fields: dict[str, Any] = {}
         if memo_needed:
-            update_memo = confirm(
-                "[bold cyan]Update YNAB transaction memo?[/]", console=console
-            )
+            update_memo = confirm("[bold cyan]Update YNAB transaction memo?[/]", console=console)
             if update_memo:
                 update_fields.update(memo=memo, payee_id=amazon_with_memo_payee.id)
             else:
