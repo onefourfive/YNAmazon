@@ -27,6 +27,24 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a8/c3/cf5fc58819cb85bd79b056a30cffbd0fa09500bfe83ed9d06e9cac0c8d34/amazon_orders-5.1.0-py3-none-any.whl", hash = "sha256:be66a0f6ef2b63314dbfeda6f39aa08e13a35d0ac9941bc06462300999c24648", size = 117086, upload-time = "2026-10-24T01:41:57.074Z" },
 ]
 
+[package.optional-dependencies]
+captcha = [
+    { name = "amazoncaptcha" },
+]
+
+[[package]]
+name = "amazoncaptcha"
+version = "0.5.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pillow" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9a/7a/ccd80836e99ca72d23368e6d5210a34f34793de33da866f23c7931bbe7b5/amazoncaptcha-0.5.11.tar.gz", hash = "sha256:1938e977ebebd83d83cc01478a705f2ecf0d0c5d1189924ff954ee973c25337e", size = 878262, upload-time = "2023-05-14T13:34:33.907Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a8/d3/6aec247ecede99ca3f591a9d5e6e581d1e73f5a5b3a66b2c4abfb672c2d2/amazoncaptcha-0.5.11-py3-none-any.whl", hash = "sha256:0e6d33154fc0238ca0d794a02289cff154fc8a0ec64243c36951558bbb7da1de", size = 937452, upload-time = "2023-05-14T13:34:31.31Z" },
+]
+
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -1439,7 +1457,7 @@ wheels = [
 name = "ynamazon"
 source = { editable = "." }
 dependencies = [
-    { name = "amazon-orders" },
+    { name = "amazon-orders", extra = ["captcha"] },
     { name = "cache-decorator" },
     { name = "furl" },
     { name = "loguru" },
@@ -1477,7 +1495,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "amazon-orders", specifier = ">=5.1.0" },
+    { name = "amazon-orders", extras = ["captcha"], specifier = ">=5.1.0" },
     { name = "anthropic", marker = "extra == 'ai'", specifier = ">=0.125.0" },
     { name = "cache-decorator", specifier = ">=2.2.0" },
     { name = "furl", specifier = ">=2.1.4" },
