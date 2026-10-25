@@ -17,6 +17,7 @@ from pydantic import AnyUrl, BaseModel, ConfigDict, EmailStr, Field, SecretStr, 
 from rich import print as rprint
 from rich.table import Table
 
+from .exceptions import AmazonLoginError
 from .settings import settings
 from .types_pydantic import AmazonItemType
 
@@ -202,20 +203,27 @@ class AmazonTransactionRetriever:
         return AmazonOrders(self._session()).get_order(order_number).items
 
     def _session(self) -> AmazonSession:
+        """Returns a logged-in Amazon session, logging in on first use.
+
+        Raises:
+            AmazonLoginError: If logging in doesn't produce an authenticated session.
+        """
         if "session" in self._memo:
             return self._memo["session"]
 
         amazon_session = self.amazon_config.amazon_session()
         amazon_session.login()
 
-        if amazon_session.is_authenticated:
-            self._memo["session"] = amazon_session
-            return self._memo["session"]
+        if not amazon_session.is_authenticated:
+            raise AmazonLoginError("Couldn't log in to Amazon: the session isn't authenticated.")
+
+        self._memo["session"] = amazon_session
+        return self._memo["session"]
 
     @classmethod
     def _normalized_years(cls, years: list[str] | None = None) -> list[str]:
         if years is None:
-            return [date.today().year]
+            return [str(date.today().year)]
 
         result: list[str] = []
 
