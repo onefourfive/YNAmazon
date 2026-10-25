@@ -1,9 +1,9 @@
-from typing import override
+from typing import Literal, override
 
 from pydantic import EmailStr, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .exceptions import MissingOpenAIAPIKey
+from .exceptions import MissingAnthropicAPIKey, MissingOpenAIAPIKey
 
 
 class SecretApiKey(SecretStr):
@@ -42,7 +42,11 @@ class Settings(BaseSettings):
     ynab_budget_id: SecretBudgetId
     amazon_user: EmailStr
     amazon_password: SecretStr
+    ai_provider: Literal["openai", "anthropic"] = "openai"
     openai_api_key: SecretApiKey | None = None
+    openai_model: str = "gpt-4o-mini"
+    anthropic_api_key: SecretApiKey | None = None
+    anthropic_model: str = "claude-opus-5-5"
 
     ynab_payee_name_to_be_processed: str = "Amazon - Needs Memo"
     ynab_payee_name_processing_completed: str = "Amazon"
@@ -52,9 +56,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_settings(self) -> "Settings":
-        """Validate that OpenAI API key is present when AI summarization is enabled."""
-        if self.use_ai_summarization and self.openai_api_key is None:
+        """Validate that the configured AI provider's API key is present when AI summarization is enabled."""
+        if not self.use_ai_summarization:
+            return self
+        if self.ai_provider == "openai" and self.openai_api_key is None:
             raise MissingOpenAIAPIKey("OpenAI API key is required when AI summarization is enabled")
+        if self.ai_provider == "anthropic" and self.anthropic_api_key is None:
+            raise MissingAnthropicAPIKey("Anthropic API key is required when AI summarization is enabled")
         return self
 
 
