@@ -171,6 +171,14 @@ def ynamazon(
             is_flag=True,
         ),
     ] = False,
+    needs_category: Annotated[
+        bool,
+        Option(
+            "--needs-category",
+            help="Suggest categories for uncategorized Amazon transactions, including ones whose memo was already processed",
+            is_flag=True,
+        ),
+    ] = False,
 ) -> None:
     """
     [bold cyan](Default) Match YNAB transactions to Amazon Transactions and optionally update YNAB Memos.[/]
@@ -188,6 +196,7 @@ def ynamazon(
         ),  # type: ignore[arg-type]
         ynab_config=Configuration(access_token=ynab_api_key),
         budget_id=ynab_budget_id,
+        needs_category=needs_category,
     )
 
 
@@ -202,6 +211,14 @@ def yna_callback(
             is_flag=True,
         ),
     ] = False,
+    needs_category: Annotated[
+        bool,
+        Option(
+            "--needs-category",
+            help="Suggest categories for uncategorized Amazon transactions, including ones whose memo was already processed",
+            is_flag=True,
+        ),
+    ] = False,
 ) -> None:
     """
     [bold cyan]Run 'yna' to match and update transactions using the arguements in .env. [/]
@@ -209,7 +226,7 @@ def yna_callback(
     [yellow i]Use 'yna ynamazon [ARGS]' to use command-line arguements to override .env. [/]
     """
     # Store the flag in the Typer context for use in commands
-    ctx.obj = {"force_refresh_amazon": force_refresh_amazon}
+    ctx.obj = {"force_refresh_amazon": force_refresh_amazon, "needs_category": needs_category}
 
     rprint("[bold cyan]Starting YNAmazon processing...[/]")
     if ctx.invoked_subcommand is None:

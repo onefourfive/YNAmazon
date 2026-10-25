@@ -30,3 +30,9 @@ def get_anthropic_client() -> Anthropic:
         raise MissingAnthropicAPIKey("Anthropic API key not found")
 
     return Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
+
+
+def ai_api_key_configured() -> bool:
+    """Returns True if the configured AI provider has an API key."""
+    key = settings.anthropic_api_key if settings.ai_provider == "anthropic" else settings.openai_api_key
+    return key is not None and bool(key.get_secret_value())

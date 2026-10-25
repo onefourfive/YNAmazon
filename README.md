@@ -132,6 +132,13 @@ When enabled, after the memo prompt the program will:
 - Suggest a single category instead of a split when the transaction only covers part of an order, or when item prices aren't available
 - Ask whether to apply the suggestion. The memo and category answers are saved together in one update; accepting only the category leaves the memo and payee unchanged
 
+### Categorizing transactions that already have a memo
+Run `yna --needs-category` (or `yna ynamazon --needs-category`) to categorize Amazon transactions that are still uncategorized, including ones whose memo was already processed. This mode:
+- Looks at uncategorized transactions for both the "needs memo" payee (`YNAB_PAYEE_NAME_TO_BE_PROCESSED`) and the "processing completed" payee (`YNAB_PAYEE_NAME_PROCESSING_COMPLETED`), whether or not they're approved
+- Only considers transactions from the period that Amazon transactions are retrieved for (the last 31 days, plus a few days' margin)
+- Asks the memo question only for transactions still under the "needs memo" payee; the others go straight to the category suggestion
+- Suggests categories even if `USE_AI_CATEGORIZATION` is off, but needs the API key for your `AI_PROVIDER`
+
 ## Limitations
 This script probably won't be able to handle weird edge cases. The amazon-orders library is only able to handle amazon.com and will not pull data from other countries' amazon sites. Any transactions in the amazon transaction history that don't relate to an amazon.com order will be ignored. As with any tool that relies on web scraping, things can change at any time and it is up to the maintainers of the amazon-orders library to fix things.
 

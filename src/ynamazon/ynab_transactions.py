@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from datetime import date
 from decimal import Decimal
 from typing import Any, TypeVar, Union
 
@@ -57,12 +58,20 @@ class TempYnabTransactions(ListRootModel[TempYnabTransaction]):
 
     @classmethod
     def get_by_payee(
-        cls, payee: Payee, *, configuration: Configuration, budget_id: str
+        cls,
+        payee: Payee,
+        *,
+        configuration: Configuration,
+        budget_id: str,
+        since_date: date | None = None,
+        type: str | None = None,
     ) -> "TempYnabTransactions":
         with ApiClient(configuration=configuration) as api_client:
             response = TransactionsApi(api_client).get_transactions_by_payee(
                 budget_id=budget_id,
                 payee_id=payee.id,
+                since_date=since_date,
+                type=type,
             )
 
         return cls.from_hybrid(response.data.transactions)
@@ -148,6 +157,25 @@ def get_ynab_transactions(
     configuration = configuration or default_configuration
     budget_id = budget_id or my_budget_id.get_secret_value()
 
+    amazon_needs_memo_payee, amazon_with_memo_payee = get_amazon_payees(
+        configuration=configuration, budget_id=budget_id
+    )
+
+    ynab_transactions = TempYnabTransactions.get_by_payee(
+        amazon_needs_memo_payee, configuration=configuration, budget_id=budget_id
+    )
+
+    ynab_transactions.filter(lambda t: not t.approved)
+
+    return ynab_transactions, amazon_with_memo_payee
+
+
+def get_amazon_payees(configuration: Configuration, budget_id: str) -> tuple[Payee, Payee]:
+    """Returns the "needs memo" and "processing completed" Amazon payees.
+
+    Raises:
+        YnabSetupError: If the payees are not found in YNAB.
+    """
     payees = Payees.get_by_budget(configuration=configuration, budget_id=budget_id)
 
     rprint("Finding payees...")
@@ -162,13 +190,53 @@ def get_ynab_transactions(
             f"Payee '{settings.ynab_payee_name_processing_completed}' not found in YNAB."
         )
 
-    ynab_transactions = TempYnabTransactions.get_by_payee(
-        amazon_needs_memo_payee, configuration=configuration, budget_id=budget_id
+    return amazon_needs_memo_payee, amazon_with_memo_payee
+
+
+def get_uncategorized_ynab_transactions(
+    configuration: Union[Configuration, None] = None,
+    budget_id: Union[str, None] = None,
+    since_date: Union[date, None] = None,
+) -> tuple[TempYnabTransactions, "Payee", "Payee"]:
+    """Returns uncategorized transactions for both Amazon payees, oldest first.
+
+    This covers transactions still waiting for a memo and ones whose memo was already processed.
+
+    Args:
+        configuration (Configuration | None): The YNAB API configuration.
+        budget_id (str | None): The budget ID.
+        since_date (date | None): Only include transactions on or after this date.
+
+    Returns:
+        tuple[TempYnabTransactions, Payee, Payee]: The transactions, the "needs memo" payee, and the
+            "processing completed" payee.
+
+    Raises:
+        YnabSetupError: If the payees are not found in YNAB.
+    """
+    configuration = configuration or default_configuration
+    budget_id = budget_id or my_budget_id.get_secret_value()
+
+    amazon_needs_memo_payee, amazon_with_memo_payee = get_amazon_payees(
+        configuration=configuration, budget_id=budget_id
     )
 
-    ynab_transactions.filter(lambda t: not t.approved)
+    transactions: list[TempYnabTransaction] = []
+    for payee in (amazon_needs_memo_payee, amazon_with_memo_payee):
+        transactions.extend(
+            TempYnabTransactions.get_by_payee(
+                payee,
+                configuration=configuration,
+                budget_id=budget_id,
+                since_date=since_date,
+                type="uncategorized",
+            )
+        )
 
-    return ynab_transactions, amazon_with_memo_payee
+    transactions = [t for t in transactions if not t.deleted]
+    transactions.sort(key=lambda t: t.var_date)
+
+    return TempYnabTransactions(root=transactions), amazon_needs_memo_payee, amazon_with_memo_payee
 
 
 def update_ynab_transaction(
