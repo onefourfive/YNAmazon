@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same PR or branch cancels the run in progress
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Settings are required at import time. The tests mock YNAB, Amazon, and the AI providers, so placeholder
+    # values are enough and no secrets are needed.
+    env:
+      ynab_api_key: ci-placeholder
+      ynab_budget_id: ci-placeholder
+      amazon_user: ci@example.com
+      amazon_password: ci-placeholder
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pillow 9.5 has no prebuilt wheel for Python 3.12, so it's built from source and needs these headers
+      - name: Install Pillow build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libjpeg-dev zlib1g-dev
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --locked --group test --extra ai
+
+      - name: Lint
+        run: uv run ruff check --output-format=github
+
+      - name: Test
+        run: uv run pytest tests --cov=ynamazon --cov-report=term-missing
+
+      - name: Coverage summary
+        if: ${{ !cancelled() }}
+        run: |
+          echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
+          uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
