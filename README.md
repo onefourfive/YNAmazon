@@ -71,6 +71,19 @@ The script relies on the `amazon-orders` library for Amazon data and the YNAB AP
 
 There is an important distinction between an Amazon order and an Amazon transaction. When you check out, that is a single order. Often, one order will be fulfilled together, creating a single transaction. However, some orders will generate more than one transaction, which will show up in YNAB separately. This program handles this by adding the same memo to each transaction of that order, which includes a note that the transaction doesn't reflect the entire order.
 
+### Choosing a date range
+By default, the program retrieves the last 31 days of Amazon transactions and this year's orders. To work on a different period, pass `--since` and/or `--until` as `YYYYMMDD` dates (with `yna` or `yna ynamazon`, and with `--needs-category`):
+
+```bash
+yna --since 20260101 --until 20260331
+```
+
+- Only YNAB transactions dated within the range (inclusive) are processed.
+- Amazon orders and transactions are retrieved to cover the range, with a few days' margin because Amazon and YNAB can date the same charge differently.
+- `--until` defaults to today when it's missing or empty. With only `--until`, the range starts 31 days before it.
+- Dates must be real `YYYYMMDD` dates, can't be in the future or before 1995, and `--since` can't be after `--until`.
+- Ranges longer than 6 months ask for confirmation first, since retrieving that much Amazon history can take a while.
+
 ### Sample Memo Format
 
 For a transaction for an order with a single item, the memo format is as minimal as possible, for example:
