@@ -209,13 +209,10 @@ def ynamazon(
     date_range = _resolve_date_range(since, until)
 
     process_transactions(
-        amazon_config=AmazonConfig(
-            username=amazon_user,
-            password=amazon_password,
-            force_refresh_amazon=ctx.obj["force_refresh_amazon"],
-        ),  # type: ignore[arg-type]
+        amazon_config=AmazonConfig(username=amazon_user, password=amazon_password),  # type: ignore[arg-type]
         ynab_config=Configuration(access_token=ynab_api_key),
         budget_id=ynab_budget_id,
+        force_refresh_amazon=ctx.obj["force_refresh_amazon"],
         needs_category=needs_category,
         date_range=date_range,
     )
