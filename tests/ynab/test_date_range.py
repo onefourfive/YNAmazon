@@ -151,7 +151,7 @@ def test_process_transactions_limits_work_to_range():
     with patch("ynamazon.main.get_ynab_transactions") as get_ynab, \
          patch("ynamazon.main.AmazonTransactionRetriever") as retriever, \
          patch("ynamazon.main.build_memo", side_effect=lambda console, a_tran: f"memo for {id(a_tran)}"), \
-         patch("ynamazon.main.Confirm.ask", return_value=True), \
+         patch("ynamazon.main.confirm", return_value=True), \
          patch("ynamazon.main.update_ynab_transaction") as update, \
          patch("ynamazon.main.settings.use_ai_categorization", False):
         get_ynab.return_value = (TempYnabTransactions(root=[in_range, after_range]), Mock(id="payee-processed"))

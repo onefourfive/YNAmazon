@@ -3,13 +3,13 @@ from typing import Annotated
 
 from rich import print as rprint
 from rich.console import Console
-from rich.prompt import Confirm
 from rich.table import Table
 from typer import Argument, BadParameter, Context, Exit, Option, Typer
 from typer import run as typer_run
 from ynab.configuration import Configuration
 
 from ynamazon.amazon_transactions import AmazonConfig, AmazonTransactionRetriever
+from ynamazon.confirm import confirm, set_one_key
 from ynamazon.date_range import LARGE_RANGE_MONTHS, DateRange, DateRangeError
 from ynamazon.main import process_transactions
 from ynamazon.settings import settings
@@ -197,6 +197,14 @@ def ynamazon(
             metavar="YYYYMMDD",
         ),
     ] = None,
+    one_key: Annotated[
+        bool,
+        Option(
+            "--one-key",
+            help="Answer y/n prompts with a single key press, without Enter",
+            is_flag=True,
+        ),
+    ] = False,
 ) -> None:
     """
     [bold cyan](Default) Match YNAB transactions to Amazon Transactions and optionally update YNAB Memos.[/]
@@ -206,6 +214,7 @@ def ynamazon(
     # Store the flag in the Typer context for use in commands
     ctx.obj = {"force_refresh_amazon": force_refresh_amazon}
 
+    set_one_key(one_key)
     date_range = _resolve_date_range(since, until)
 
     process_transactions(
@@ -226,7 +235,7 @@ def _resolve_date_range(since: str | None, until: str | None) -> DateRange | Non
         raise BadParameter(str(e)) from e
 
     if date_range is not None and date_range.is_large():
-        confirmed = Confirm.ask(
+        confirmed = confirm(
             f"[bold yellow]{date_range.since} to {date_range.until} is more than {LARGE_RANGE_MONTHS} months "
             f"({date_range.days} days). Retrieving that much Amazon history can take a while. Continue?[/]"
         )
@@ -272,6 +281,14 @@ def yna_callback(
             metavar="YYYYMMDD",
         ),
     ] = None,
+    one_key: Annotated[
+        bool,
+        Option(
+            "--one-key",
+            help="Answer y/n prompts with a single key press, without Enter",
+            is_flag=True,
+        ),
+    ] = False,
 ) -> None:
     """
     [bold cyan]Run 'yna' to match and update transactions using the arguements in .env. [/]
