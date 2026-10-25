@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from datetime import date
 from decimal import Decimal
 from typing import Any, TypeVar, Union
 
@@ -14,6 +15,7 @@ from ynab.models.existing_transaction import ExistingTransaction
 from ynab.models.hybrid_transaction import HybridTransaction
 from ynab.models.payee import Payee
 from ynab.models.put_transaction_wrapper import PutTransactionWrapper
+from ynab.models.save_sub_transaction import SaveSubTransaction
 
 from ynamazon.base import ListRootModel
 from ynamazon.exceptions import YnabSetupError
@@ -56,12 +58,20 @@ class TempYnabTransactions(ListRootModel[TempYnabTransaction]):
 
     @classmethod
     def get_by_payee(
-        cls, payee: Payee, *, configuration: Configuration, budget_id: str
+        cls,
+        payee: Payee,
+        *,
+        configuration: Configuration,
+        budget_id: str,
+        since_date: date | None = None,
+        type: str | None = None,
     ) -> "TempYnabTransactions":
         with ApiClient(configuration=configuration) as api_client:
             response = TransactionsApi(api_client).get_transactions_by_payee(
                 budget_id=budget_id,
                 payee_id=payee.id,
+                since_date=since_date,
+                type=type,
             )
 
         return cls.from_hybrid(response.data.transactions)
@@ -147,6 +157,25 @@ def get_ynab_transactions(
     configuration = configuration or default_configuration
     budget_id = budget_id or my_budget_id.get_secret_value()
 
+    amazon_needs_memo_payee, amazon_with_memo_payee = get_amazon_payees(
+        configuration=configuration, budget_id=budget_id
+    )
+
+    ynab_transactions = TempYnabTransactions.get_by_payee(
+        amazon_needs_memo_payee, configuration=configuration, budget_id=budget_id
+    )
+
+    ynab_transactions.filter(lambda t: not t.approved)
+
+    return ynab_transactions, amazon_with_memo_payee
+
+
+def get_amazon_payees(configuration: Configuration, budget_id: str) -> tuple[Payee, Payee]:
+    """Returns the "needs memo" and "processing completed" Amazon payees.
+
+    Raises:
+        YnabSetupError: If the payees are not found in YNAB.
+    """
     payees = Payees.get_by_budget(configuration=configuration, budget_id=budget_id)
 
     rprint("Finding payees...")
@@ -161,30 +190,76 @@ def get_ynab_transactions(
             f"Payee '{settings.ynab_payee_name_processing_completed}' not found in YNAB."
         )
 
-    ynab_transactions = TempYnabTransactions.get_by_payee(
-        amazon_needs_memo_payee, configuration=configuration, budget_id=budget_id
+    return amazon_needs_memo_payee, amazon_with_memo_payee
+
+
+def get_uncategorized_ynab_transactions(
+    configuration: Union[Configuration, None] = None,
+    budget_id: Union[str, None] = None,
+    since_date: Union[date, None] = None,
+) -> tuple[TempYnabTransactions, "Payee", "Payee"]:
+    """Returns uncategorized transactions for both Amazon payees, oldest first.
+
+    This covers transactions still waiting for a memo and ones whose memo was already processed.
+
+    Args:
+        configuration (Configuration | None): The YNAB API configuration.
+        budget_id (str | None): The budget ID.
+        since_date (date | None): Only include transactions on or after this date.
+
+    Returns:
+        tuple[TempYnabTransactions, Payee, Payee]: The transactions, the "needs memo" payee, and the
+            "processing completed" payee.
+
+    Raises:
+        YnabSetupError: If the payees are not found in YNAB.
+    """
+    configuration = configuration or default_configuration
+    budget_id = budget_id or my_budget_id.get_secret_value()
+
+    amazon_needs_memo_payee, amazon_with_memo_payee = get_amazon_payees(
+        configuration=configuration, budget_id=budget_id
     )
 
-    ynab_transactions.filter(lambda t: not t.approved)
+    transactions: list[TempYnabTransaction] = []
+    for payee in (amazon_needs_memo_payee, amazon_with_memo_payee):
+        transactions.extend(
+            TempYnabTransactions.get_by_payee(
+                payee,
+                configuration=configuration,
+                budget_id=budget_id,
+                since_date=since_date,
+                type="uncategorized",
+            )
+        )
 
-    return ynab_transactions, amazon_with_memo_payee
+    transactions = [t for t in transactions if not t.deleted]
+    transactions.sort(key=lambda t: t.var_date)
+
+    return TempYnabTransactions(root=transactions), amazon_needs_memo_payee, amazon_with_memo_payee
 
 
 def update_ynab_transaction(
     transaction: "HybridTransaction",
-    memo: str,
-    payee_id: str,
+    memo: Union[str, None] = None,
+    payee_id: Union[str, None] = None,
     configuration: Union[Configuration, None] = None,
     budget_id: Union[str, None] = None,
+    category_id: Union[str, None] = None,
+    subtransactions: Union[list[SaveSubTransaction], None] = None,
 ) -> None:
-    """Updates a YNAB transaction with the given memo and payee ID.
+    """Updates a YNAB transaction with the given memo, payee ID, and category or split.
+
+    Only the fields that are passed are changed.
 
     Args:
         transaction (HybridTransaction): The transaction to update.
-        memo (str): The memo to set.
-        payee_id (str): The payee ID to set.
+        memo (str | None): The memo to set.
+        payee_id (str | None): The payee ID to set.
         configuration (Configuration | None): The YNAB API configuration.
         budget_id (str | None): The budget ID.
+        category_id (str | None): The category ID to set.
+        subtransactions (list[SaveSubTransaction] | None): Subtransactions that turn the transaction into a split.
     """
     configuration = configuration or default_configuration
     budget_id = budget_id or my_budget_id.get_secret_value()
@@ -192,10 +267,25 @@ def update_ynab_transaction(
         transaction=ExistingTransaction.model_validate(transaction.to_dict())
     )
 
-    # Convert memo to string if it's a MultiLineText object
-    memo_str = str(memo)
+    if memo is not None:
+        data.transaction.memo = _fit_memo(str(memo))
+    if payee_id is not None:
+        data.transaction.payee_id = payee_id
+    if subtransactions:
+        # A split has no category of its own; each subtransaction has one instead
+        data.transaction.category_id = None
+        data.transaction.subtransactions = subtransactions
+    elif category_id is not None:
+        data.transaction.category_id = category_id
 
-    # Ensure memo doesn't exceed 500 character limit
+    with ApiClient(configuration=configuration) as api_client:
+        _ = TransactionsApi(api_client=api_client).update_transaction(
+            budget_id=budget_id, transaction_id=transaction.id, data=data
+        )
+
+
+def _fit_memo(memo_str: str) -> str:
+    """Truncates a memo to YNAB's 500 character limit, keeping the partial order warning and URL."""
     if len(memo_str) > 500:
         logger.warning(f"Memo exceeds 500 character limit ({len(memo_str)} chars). Truncating...")
         # Keep the important parts - first warning line, and the URL at the end
@@ -220,12 +310,7 @@ def update_ynab_transaction(
         # Combine the parts to stay under 500 chars
         memo_str = f"{header}{middle_content}\n{url_line}"
 
-    data.transaction.memo = memo_str
-    data.transaction.payee_id = payee_id
-    with ApiClient(configuration=configuration) as api_client:
-        _ = TransactionsApi(api_client=api_client).update_transaction(
-            budget_id=budget_id, transaction_id=transaction.id, data=data
-        )
+    return memo_str
 
 
 _T = TypeVar("_T", bound=Payee)

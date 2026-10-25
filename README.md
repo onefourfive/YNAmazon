@@ -26,6 +26,7 @@ A program to annotate YNAB transactions with Amazon order info
         YNAB_PAYEE_NAME_PROCESSING_COMPLETED=Amazon
         YNAB_USE_MARKDOWN=true/false
         USE_AI_SUMMARIZATION=true/false
+        USE_AI_CATEGORIZATION=true/false
         AI_PROVIDER=openai/anthropic
         OPENAI_API_KEY=your-openai-api-key
         ANTHROPIC_API_KEY=your-anthropic-api-key
@@ -120,6 +121,23 @@ When enabled, the program will:
 - Preserve important information like order URLs and partial order warnings
 - Fall back to standard truncation if AI summarization fails or is unavailable
 - Will not use markdown formatting if enabled since this only increases memo length
+
+## AI Categorization
+The program can also suggest a YNAB category for each matched Amazon transaction, based on the items purchased and the categories in your budget. It uses the same `AI_PROVIDER` and API key as AI summarization. To enable it, set `USE_AI_CATEGORIZATION=true` in your `.env` file.
+
+When enabled, after the memo prompt the program will:
+- Skip transactions that already have a category in YNAB
+- Ask the AI to assign each item in the order to one of your categories, using your category notes as hints
+- Suggest a single category, or a split when the items belong in different categories. Split amounts are calculated from the item prices, so tax and shipping are shared proportionally and the split always adds up to the transaction total
+- Suggest a single category instead of a split when the transaction only covers part of an order, or when item prices aren't available
+- Ask whether to apply the suggestion. The memo and category answers are saved together in one update; accepting only the category leaves the memo and payee unchanged
+
+### Categorizing transactions that already have a memo
+Run `yna --needs-category` (or `yna ynamazon --needs-category`) to categorize Amazon transactions that are still uncategorized, including ones whose memo was already processed. This mode:
+- Looks at uncategorized transactions for both the "needs memo" payee (`YNAB_PAYEE_NAME_TO_BE_PROCESSED`) and the "processing completed" payee (`YNAB_PAYEE_NAME_PROCESSING_COMPLETED`), whether or not they're approved
+- Only considers transactions from the period that Amazon transactions are retrieved for (the last 31 days, plus a few days' margin)
+- Asks the memo question only for transactions still under the "needs memo" payee; the others go straight to the category suggestion
+- Suggests categories even if `USE_AI_CATEGORIZATION` is off, but needs the API key for your `AI_PROVIDER`
 
 ## Limitations
 This script probably won't be able to handle weird edge cases. The amazon-orders library is only able to handle amazon.com and will not pull data from other countries' amazon sites. Any transactions in the amazon transaction history that don't relate to an amazon.com order will be ignored. As with any tool that relies on web scraping, things can change at any time and it is up to the maintainers of the amazon-orders library to fix things.

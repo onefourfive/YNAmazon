@@ -49,8 +49,8 @@ def _block(block_type: str, text: str = "") -> Mock:
 
 def test_anthropic_summary_returns_text(anthropic_settings):
     """The memo comes from the text blocks; thinking blocks are ignored."""
-    with patch("ynamazon.ynab_memo.Anthropic") as mock_anthropic, \
-         patch("ynamazon.ynab_memo.OpenAI") as mock_openai:
+    with patch("ynamazon.ai_clients.Anthropic") as mock_anthropic, \
+         patch("ynamazon.ai_clients.OpenAI") as mock_openai:
         mock_client = mock_anthropic.return_value
         mock_client.beta.messages.create.return_value = _response(
             _block("thinking"), _block("text", "Bag of dog treats")
@@ -70,7 +70,7 @@ def test_anthropic_summary_returns_text(anthropic_settings):
 
 def test_anthropic_summary_truncates_and_adds_partial_order_note(anthropic_settings):
     """Shared post-processing applies to the Anthropic provider too."""
-    with patch("ynamazon.ynab_memo.Anthropic") as mock_anthropic:
+    with patch("ynamazon.ai_clients.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.beta.messages.create.return_value = _response(_block("text", "x" * 600))
 
         result = generate_ai_summary(
@@ -84,7 +84,7 @@ def test_anthropic_summary_truncates_and_adds_partial_order_note(anthropic_setti
 
 def test_anthropic_summary_error_handling(anthropic_settings):
     """Authentication errors raise; other API errors and refusals return None."""
-    with patch("ynamazon.ynab_memo.Anthropic") as mock_anthropic:
+    with patch("ynamazon.ai_clients.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.beta.messages.create.side_effect = anthropic.AuthenticationError(
             message="Invalid API key",
             response=Mock(status_code=401, headers={}),
@@ -93,15 +93,15 @@ def test_anthropic_summary_error_handling(anthropic_settings):
         with pytest.raises(InvalidAnthropicAPIKey):
             generate_ai_summary(["Item 1"], "https://amazon.com/order/123")
 
-    with patch("ynamazon.ynab_memo.Anthropic") as mock_anthropic:
+    with patch("ynamazon.ai_clients.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.beta.messages.create.side_effect = anthropic.APIConnectionError(request=Mock())
         assert generate_ai_summary(["Item 1"], "https://amazon.com/order/123") is None
 
-    with patch("ynamazon.ynab_memo.Anthropic") as mock_anthropic:
+    with patch("ynamazon.ai_clients.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.beta.messages.create.return_value = _response(stop_reason="refusal")
         assert generate_ai_summary(["Item 1"], "https://amazon.com/order/123") is None
 
-    with patch("ynamazon.ynab_memo.Anthropic") as mock_anthropic:
+    with patch("ynamazon.ai_clients.Anthropic") as mock_anthropic:
         mock_anthropic.return_value.beta.messages.create.return_value = _response(_block("thinking"))
         with pytest.raises(AnthropicEmptyResponseError):
             generate_ai_summary(["Item 1"], "https://amazon.com/order/123")
@@ -110,7 +110,7 @@ def test_anthropic_summary_error_handling(anthropic_settings):
 def test_anthropic_summary_missing_key(anthropic_settings):
     """A missing key raises before any request is made."""
     anthropic_settings.anthropic_api_key = None
-    with patch("ynamazon.ynab_memo.Anthropic") as mock_anthropic:
+    with patch("ynamazon.ai_clients.Anthropic") as mock_anthropic:
         with pytest.raises(MissingAnthropicAPIKey):
             generate_ai_summary(["Item 1"], "https://amazon.com/order/123")
     mock_anthropic.assert_not_called()

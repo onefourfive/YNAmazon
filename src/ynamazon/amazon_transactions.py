@@ -5,6 +5,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Union  # ,  Self  # not available python <3.11
 
+from amazonorders.entity.item import Item
 from amazonorders.entity.order import Order
 from amazonorders.entity.transaction import Transaction
 from amazonorders.orders import AmazonOrders
@@ -185,6 +186,17 @@ class AmazonTransactionRetriever:
         self._memo["amazon_transactions"].sort(key=lambda trans: trans.completed_date)
 
         return self._memo["amazon_transactions"]
+
+    def get_order_items(self, order_number: str) -> list[Item]:
+        """Fetches an order's details page to get its items with prices, which the order history doesn't include.
+
+        Args:
+            order_number (str): The Amazon order number.
+
+        Returns:
+            list[Item]: The order's items.
+        """
+        return AmazonOrders(self._session()).get_order(order_number).items
 
     def _session(self) -> AmazonSession:
         if "session" in self._memo:

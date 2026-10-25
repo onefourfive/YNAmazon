@@ -4,9 +4,8 @@ from loguru import logger
 import re
 from typing import Optional
 import anthropic
-from anthropic import Anthropic
-from openai import OpenAI
 from openai import AuthenticationError, RateLimitError, APIError
+from ynamazon.ai_clients import get_anthropic_client, get_openai_client
 from ynamazon.settings import settings
 from ynamazon.prompts import (
     AMAZON_SUMMARY_SYSTEM_PROMPT,
@@ -14,10 +13,8 @@ from ynamazon.prompts import (
     AMAZON_SUMMARY_MARKDOWN_PROMPT
 )
 from .exceptions import (
-    MissingOpenAIAPIKey,
     InvalidOpenAIAPIKey,
     OpenAIEmptyResponseError,
-    MissingAnthropicAPIKey,
     InvalidAnthropicAPIKey,
     AnthropicEmptyResponseError,
 )
@@ -87,12 +84,7 @@ def generate_ai_summary(
 
 def _openai_summary(prompt: str) -> str | None:
     """Get a memo summary from OpenAI. Returns None on recoverable API errors."""
-    # Check if OpenAI key is available
-    if settings.openai_api_key is None or not settings.openai_api_key.get_secret_value():
-        raise MissingOpenAIAPIKey("OpenAI API key not found")
-
-    # Create client
-    client = OpenAI(api_key=settings.openai_api_key.get_secret_value())
+    client = get_openai_client()
 
     try:
         # Get the response from OpenAI
@@ -124,12 +116,7 @@ def _openai_summary(prompt: str) -> str | None:
 
 def _anthropic_summary(prompt: str) -> str | None:
     """Get a memo summary from Anthropic's Claude API. Returns None on recoverable API errors."""
-    # Check if Anthropic key is available
-    if settings.anthropic_api_key is None or not settings.anthropic_api_key.get_secret_value():
-        raise MissingAnthropicAPIKey("Anthropic API key not found")
-
-    # Create client
-    client = Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
+    client = get_anthropic_client()
 
     try:
         # Get the response from Claude. A short summary doesn't need deep reasoning, so use low effort.
