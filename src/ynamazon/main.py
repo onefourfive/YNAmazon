@@ -1,17 +1,22 @@
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Any, override
 
 from loguru import logger
 from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.prompt import Confirm
+from amazonorders.exception import AmazonOrdersError
+from rich.table import Table
+from ynab.exceptions import ApiException
 
 from ynamazon.amazon_transactions import (
     AmazonConfig,
     AmazonTransactionRetriever,
     locate_amazon_transaction_by_amount,
 )
+from ynamazon.ai_categorization import suggest_categorization
 from ynamazon.exceptions import YnabSetupError
 from ynamazon.settings import settings
+from ynamazon.ynab_categories import get_budget_categories, is_uncategorized
 from ynamazon.ynab_memo import process_memo
 from ynamazon.ynab_transactions import default_configuration as ynab_configuration
 from ynamazon.ynab_transactions import (
@@ -28,6 +33,10 @@ except ImportError:
 
 if TYPE_CHECKING:
     from ynab.configuration import Configuration
+    from ynab.models.category import Category
+
+    from ynamazon.amazon_transactions import AmazonTransactionWithOrderInfo
+    from ynamazon.ynab_transactions import TempYnabTransaction
 
 
 class MultiLineText(BaseModel):
@@ -43,6 +52,55 @@ class MultiLineText(BaseModel):
     def append(self, line: str) -> None:
         """Appends a line to the text."""
         self.lines.append(line)
+
+
+def ask_for_categorization(
+    console: Console,
+    amazon_tran: "AmazonTransactionWithOrderInfo",
+    ynab_tran: "TempYnabTransaction",
+    categories: "list[Category]",
+    retriever: AmazonTransactionRetriever,
+) -> dict[str, Any]:
+    """Shows an AI-suggested category (or split) and asks whether to apply it.
+
+    Returns:
+        The keyword arguments for `update_ynab_transaction` that apply the suggestion, or an empty dict if
+        there's no suggestion or it was declined.
+    """
+    # Splits are calculated from item prices, which only the order details page has. A split is only
+    # possible for a multi-item charge that covers the whole order, so only fetch details then.
+    whole_order = amazon_tran.transaction_total == amazon_tran.order_total
+    if whole_order and len(amazon_tran.items) > 1 and any(item.price is None for item in amazon_tran.items):
+        try:
+            items = retriever.get_order_items(amazon_tran.order_number)
+            amazon_tran = amazon_tran.model_copy(update={"items": items})
+        except AmazonOrdersError as e:
+            logger.warning(f"Couldn't load item prices for order {amazon_tran.order_number}: {e}")
+
+    console.print("[cyan]Asking AI for a category suggestion...[/]")
+    suggestion = suggest_categorization(amazon_tran, ynab_tran, categories)
+    if suggestion is None:
+        console.print("[yellow]No AI category suggestion available for this transaction.[/]")
+        return {}
+
+    title = "AI-Suggested Split" if suggestion.is_split else "AI-Suggested Category"
+    table = Table(title=title, caption=suggestion.reason)
+    table.add_column("Category", style="cyan")
+    table.add_column("Amount", justify="right", style="green")
+    table.add_column("Items")
+    for split in suggestion.splits:
+        table.add_row(
+            f"{split.category.category_group_name}: {split.category.name}",
+            f"${split.amount / -1000:.2f}",
+            "\n".join(split.items),
+        )
+    console.print(table)
+
+    if not Confirm.ask("[bold cyan]Apply AI-suggested categorization?[/]", console=console):
+        console.print("[yellow]Skipping categorization...[/]")
+        return {}
+
+    return suggestion.update_kwargs()
 
 
 # TODO: reduce complexity of this function
@@ -68,11 +126,19 @@ def process_transactions(  # noqa: C901
         return
 
     console.print("[cyan]Starting search for Amazon transactions...[/]")
-    amazon_trans = AmazonTransactionRetriever(
+    amazon_retriever = AmazonTransactionRetriever(
         amazon_config=amazon_config, force_refresh_amazon=force_refresh_amazon
-    ).get_amazon_transactions()
+    )
+    amazon_trans = amazon_retriever.get_amazon_transactions()
 
     console.print(f"[green]{len(amazon_trans)} Amazon transactions retrieved successfully.[/]")
+
+    categories: list[Category] | None = None
+    if settings.use_ai_categorization:
+        try:
+            categories = get_budget_categories(configuration=ynab_config, budget_id=budget_id)
+        except ApiException as e:
+            console.print(f"[bold red]Couldn't load YNAB categories; AI categorization is off for this run: {e}[/]")
 
     console.print("[cyan]Starting to look for matching transactions...[/]")
     for ynab_tran in ynab_trans:
@@ -135,21 +201,35 @@ def process_transactions(  # noqa: C901
                 _ = amazon_trans.pop(amazon_tran_index)
                 console.log("Removing matched transaction from search")
 
-        update_transaction = Confirm.ask(
+        update_fields: dict[str, Any] = {}
+        update_memo = Confirm.ask(
             "[bold cyan]Update YNAB transaction memo?[/]", console=console
         )
-        if not update_transaction:
-            console.print("[yellow]Skipping YNAB transaction update...[/]\n\n")
+        if update_memo:
+            update_fields.update(memo=memo, payee_id=amazon_with_memo_payee.id)
+        else:
+            console.print("[yellow]Skipping YNAB transaction memo update...[/]\n\n")
             console.print("[cyan i]Memo Preview[/]:")
             console.print(str(memo))
+
+        if categories is not None:
+            if is_uncategorized(ynab_tran):
+                update_fields.update(
+                    ask_for_categorization(console, amazon_tran, ynab_tran, categories, amazon_retriever)
+                )
+            else:
+                console.print(f"[dim]Already categorized as {ynab_tran.category_name}; skipping AI categorization.[/]")
+
+        if not update_fields:
             continue
 
-        console.print("[green]Updating YNAB transaction memo...[/]")
+        console.print("[green]Updating YNAB transaction...[/]")
 
         update_ynab_transaction(
             transaction=ynab_tran,
-            memo=memo,
-            payee_id=amazon_with_memo_payee.id,
+            configuration=ynab_config,
+            budget_id=budget_id,
+            **update_fields,
         )
         console.print("\n\n")
 

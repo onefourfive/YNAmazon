@@ -209,8 +209,8 @@ def test_generate_ai_summary_error_handling(mock_settings):
     from pydantic import SecretStr
 
     # Test with invalid API key
-    with patch('ynamazon.ynab_memo.OpenAI') as mock_openai, \
-         patch('ynamazon.ynab_memo.settings.openai_api_key', SecretStr("test_key")):
+    with patch('ynamazon.ai_clients.OpenAI') as mock_openai, \
+         patch('ynamazon.ai_clients.settings.openai_api_key', SecretStr("test_key")):
         mock_client = Mock()
         mock_client.chat.completions.create.side_effect = AuthenticationError(
             message="Invalid API key",
@@ -223,8 +223,8 @@ def test_generate_ai_summary_error_handling(mock_settings):
             generate_ai_summary(["Item 1"], "https://amazon.com/order/123")
 
     # Test with API error
-    with patch('ynamazon.ynab_memo.OpenAI') as mock_openai, \
-         patch('ynamazon.ynab_memo.settings.openai_api_key', SecretStr("valid_key")):
+    with patch('ynamazon.ai_clients.OpenAI') as mock_openai, \
+         patch('ynamazon.ai_clients.settings.openai_api_key', SecretStr("valid_key")):
         mock_client = Mock()
         mock_client.chat.completions.create.side_effect = APIError(
             message="Internal server error",
@@ -237,8 +237,8 @@ def test_generate_ai_summary_error_handling(mock_settings):
         assert result is None
 
     # Test with empty response
-    with patch('ynamazon.ynab_memo.OpenAI') as mock_openai, \
-         patch('ynamazon.ynab_memo.settings.openai_api_key', SecretStr("valid_key")):
+    with patch('ynamazon.ai_clients.OpenAI') as mock_openai, \
+         patch('ynamazon.ai_clients.settings.openai_api_key', SecretStr("valid_key")):
         mock_client = Mock()
         mock_response = Mock()
         mock_response.choices = []

@@ -52,17 +52,18 @@ class Settings(BaseSettings):
     ynab_payee_name_processing_completed: str = "Amazon"
     ynab_use_markdown: bool = False
     use_ai_summarization: bool = False
+    use_ai_categorization: bool = False
     suppress_partial_order_warning: bool = False
 
     @model_validator(mode="after")
     def validate_settings(self) -> "Settings":
-        """Validate that the configured AI provider's API key is present when AI summarization is enabled."""
-        if not self.use_ai_summarization:
+        """Validate that the configured AI provider's API key is present when an AI feature is enabled."""
+        if not (self.use_ai_summarization or self.use_ai_categorization):
             return self
         if self.ai_provider == "openai" and self.openai_api_key is None:
-            raise MissingOpenAIAPIKey("OpenAI API key is required when AI summarization is enabled")
+            raise MissingOpenAIAPIKey("OpenAI API key is required when AI features are enabled")
         if self.ai_provider == "anthropic" and self.anthropic_api_key is None:
-            raise MissingAnthropicAPIKey("Anthropic API key is required when AI summarization is enabled")
+            raise MissingAnthropicAPIKey("Anthropic API key is required when AI features are enabled")
         return self
 
 

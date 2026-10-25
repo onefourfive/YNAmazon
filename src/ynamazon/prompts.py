@@ -48,3 +48,17 @@ For example:
 
 Do not include the order URL or any additional information - just the item list.
 """
+
+# System prompt for suggesting YNAB categories for the items in an Amazon order
+CATEGORIZATION_SYSTEM_PROMPT = """
+You are a helpful assistant that categorizes Amazon purchases in a YNAB (You Need A Budget) budget.
+You will be given the budget's categories and the items in an Amazon order, each with a number.
+Assign every item to exactly one category.
+
+Rules:
+- Only use the categories provided, referring to them by number
+- Pick the most specific category that fits what the item is and how it's likely to be used
+- Category notes are written by the budget owner; follow them when they say what a category is for
+- Assign every item exactly once, referring to it by number
+- Keep the reason to one short sentence
+"""
