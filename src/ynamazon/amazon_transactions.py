@@ -1,7 +1,7 @@
 # pyright: reportDeprecated=false
 import os
 import tempfile
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated, Union  # ,  Self  # not available python <3.11
 
@@ -17,6 +17,7 @@ from pydantic import AnyUrl, BaseModel, ConfigDict, EmailStr, Field, SecretStr, 
 from rich import print as rprint
 from rich.table import Table
 
+from .date_range import ORDER_LEAD_DAYS
 from .exceptions import AmazonLoginError
 from .settings import settings
 from .types_pydantic import AmazonItemType
@@ -179,17 +180,73 @@ class AmazonTransactionRetriever:
         return self._memo["amazon_orders"]
 
     def _amazon_transactions(self) -> list[Transaction]:
-        """Fetches and sorts Amazon transactions."""
+        """Fetches and sorts Amazon transactions.
+
+        Amazon's transaction history stops after a limited number of transactions (about 100), however far back
+        it's asked to go. When it ends before the requested window starts, the transactions for orders placed in
+        the gap are looked up order by order, which Amazon still allows.
+        """
         if "amazon_transactions" in self._memo:
             return self._memo["amazon_transactions"]
 
-        self._memo["amazon_transactions"] = AmazonTransactions(
-            amazon_session=self._session()
-        ).get_transactions(days=self.transaction_days)
+        start = date.today() - timedelta(days=self.transaction_days)
+        amazon_transactions = AmazonTransactions(amazon_session=self._session())
 
-        self._memo["amazon_transactions"].sort(key=lambda trans: trans.completed_date)
+        # Ask for a little more than the window: finding a transaction from before it shows the history covers it
+        transactions = amazon_transactions.get_transactions(
+            days=self.transaction_days + ORDER_LEAD_DAYS
+        )
+        history_start = min((t.completed_date for t in transactions), default=None)
+        if history_start is None or history_start >= start:
+            transactions.extend(
+                self._transactions_by_order(amazon_transactions, start, history_start)
+            )
+
+        transactions = [t for t in transactions if t.completed_date >= start]
+        transactions.sort(key=lambda trans: trans.completed_date)
+
+        self._memo["amazon_transactions"] = transactions
 
         return self._memo["amazon_transactions"]
+
+    def _transactions_by_order(
+        self,
+        amazon_transactions: AmazonTransactions,
+        start: date,
+        history_start: date | None,
+    ) -> list[Transaction]:
+        """Looks up the transactions completed before `history_start` for orders placed since `start`.
+
+        Args:
+            amazon_transactions (AmazonTransactions): The transaction API to look the orders up with.
+            start (date): The start of the requested window.
+            history_start (date | None): The earliest date in the transaction history, or `None` if it was empty.
+
+        Returns:
+            list[Transaction]: The transactions the history didn't reach.
+        """
+        orders = [
+            order
+            for order in self._amazon_orders()
+            if order.order_placed_date >= start - timedelta(days=ORDER_LEAD_DAYS)
+            and (history_start is None or order.order_placed_date <= history_start)
+        ]
+        if not orders:
+            return []
+
+        rprint(
+            f"[yellow]Amazon's transaction history only goes back to {history_start or 'today'}. "
+            f"Looking up {len(orders)} older orders one at a time...[/]"
+        )
+        found: list[Transaction] = []
+        for order in orders:
+            found.extend(
+                t
+                for t in amazon_transactions.get_transactions(order_id=order.order_number)
+                if history_start is None or t.completed_date < history_start
+            )
+
+        return found
 
     def get_order_items(self, order_number: str) -> list[Item]:
         """Fetches an order's details page to get its items with prices, which the order history doesn't include.

@@ -151,15 +151,85 @@ def test_orders_are_fetched_once(amazon_orders):
 # Transactions
 
 
-def test_transactions_use_transaction_days_and_are_sorted(amazon_transactions, session):
+TODAY = date(2026, 10, 24)
+
+
+@pytest.fixture
+def today():
+    """Fix today's date in the retriever; date() still builds dates."""
+    with patch("ynamazon.amazon_transactions.date", wraps=date) as mock_date:
+        mock_date.today.return_value = TODAY
+        yield
+
+
+def test_transactions_cover_the_window_and_are_sorted(amazon_transactions, session, today):
+    # 2026-09-01 is before the 45-day window (from 2026-09-09), so the history covers the window
+    before_window = _transaction("0", date(2026, 9, 1))
     later, earlier = _transaction("2", date(2026, 10, 5)), _transaction("1", date(2026, 10, 1))
-    amazon_transactions.return_value.get_transactions.return_value = [later, earlier]
+    amazon_transactions.return_value.get_transactions.return_value = [later, earlier, before_window]
 
     transactions = _retriever(transaction_days=45)._amazon_transactions()
 
     assert [t.order_number for t in transactions] == ["1", "2"]
     amazon_transactions.assert_called_once_with(amazon_session=session)
-    amazon_transactions.return_value.get_transactions.assert_called_once_with(days=45)
+    # Asks for more than the window, to see whether the history reaches past its start
+    amazon_transactions.return_value.get_transactions.assert_called_once_with(days=45 + 30)
+
+
+def test_orders_beyond_the_history_are_looked_up_one_by_one(
+    amazon_orders, amazon_transactions, today
+):
+    """Amazon's history stops after about 100 transactions; older ones are found by order number."""
+    # Window starts 2026-04-01; the history only reaches back to 2026-06-02
+    history = [_transaction("june", date(2026, 6, 2)), _transaction("july", date(2026, 7, 1))]
+    amazon_orders.return_value.get_orders.return_value = [
+        _order("too-old", date(2026, 2, 1)),  # before the window and its lead
+        _order("march", date(2026, 3, 31)),  # placed before the window, charged in it
+        _order("may", date(2026, 5, 10)),
+        _order("june", date(2026, 6, 1)),  # charged on the history's first day and earlier
+        _order("july", date(2026, 6, 28)),  # placed after the history starts: already covered
+    ]
+    by_order = {
+        "march": [_transaction("march", date(2026, 4, 1))],
+        "may": [_transaction("may", date(2026, 5, 12))],
+        "june": [_transaction("june", date(2026, 5, 30)), _transaction("june", date(2026, 6, 2))],
+    }
+
+    def get_transactions(days=None, order_id=None):
+        return list(history) if order_id is None else by_order[order_id]
+
+    amazon_transactions.return_value.get_transactions.side_effect = get_transactions
+
+    transactions = _retriever(transaction_days=206)._amazon_transactions()
+
+    assert [(t.order_number, t.completed_date) for t in transactions] == [
+        ("march", date(2026, 4, 1)),
+        ("may", date(2026, 5, 12)),
+        ("june", date(2026, 5, 30)),
+        ("june", date(2026, 6, 2)),  # from the history, not repeated by the lookup
+        ("july", date(2026, 7, 1)),
+    ]
+    looked_up = [
+        call.kwargs["order_id"]
+        for call in amazon_transactions.return_value.get_transactions.call_args_list
+        if "order_id" in call.kwargs
+    ]
+    assert looked_up == ["march", "may", "june"]
+
+
+def test_empty_history_looks_up_every_order_in_the_window(
+    amazon_orders, amazon_transactions, today
+):
+    amazon_orders.return_value.get_orders.return_value = [_order("recent", date(2026, 10, 20))]
+
+    def get_transactions(days=None, order_id=None):
+        return [] if order_id is None else [_transaction(order_id, date(2026, 10, 21))]
+
+    amazon_transactions.return_value.get_transactions.side_effect = get_transactions
+
+    transactions = _retriever(transaction_days=31)._amazon_transactions()
+
+    assert [t.order_number for t in transactions] == ["recent"]
 
 
 def test_amazon_transactions_are_joined_to_their_orders(amazon_orders, amazon_transactions):
