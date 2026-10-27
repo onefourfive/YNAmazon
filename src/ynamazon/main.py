@@ -192,6 +192,7 @@ def process_transactions(  # noqa: C901
             order_years=date_range.amazon_order_years(),
             transaction_days=date_range.amazon_transaction_days(),
             force_refresh_amazon=force_refresh_amazon,
+            latest_date=date_range.latest_amazon_date(),
         )
 
     # In needs-category mode, only transactions with this payee still need a memo

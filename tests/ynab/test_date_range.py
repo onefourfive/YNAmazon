@@ -109,6 +109,7 @@ def test_amazon_windows_cover_range_with_buffers():
         date(2026, 4, 7)
     )
     assert not date_range.contains_amazon(date(2026, 4, 8))
+    assert date_range.latest_amazon_date() == date(2026, 4, 7)
 
 
 def test_amazon_order_years_spans_multiple_years():
@@ -182,6 +183,8 @@ def test_process_transactions_limits_work_to_range():
     retriever_kwargs = retriever.call_args.kwargs
     assert retriever_kwargs["order_years"] == ["2026"]
     assert retriever_kwargs["transaction_days"] == date_range.amazon_transaction_days()
+    # Orders placed after the range and its buffer aren't looked up one by one
+    assert retriever_kwargs["latest_date"] == date(2026, 10, 7)
 
     update.assert_called_once()
     assert update.call_args.kwargs["transaction"].id == "in-range"
