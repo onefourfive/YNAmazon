@@ -84,6 +84,15 @@ yna --since 20260101 --until 20260331
 - Dates must be real `YYYYMMDD` dates, can't be in the future or before 1995, and `--since` can't be after `--until`.
 - Ranges longer than 6 months ask for confirmation first, since retrieving that much Amazon history can take a while.
 
+### Including approved transactions
+By default, only unapproved transactions under the "needs memo" payee (`YNAB_PAYEE_NAME_TO_BE_PROCESSED`) are processed, since those are new imports. If you approve transactions in YNAB before their memo is added, pass `--include-approved` (with `yna` or `yna ynamazon`), or set `INCLUDE_APPROVED=true` in your `.env` file, to process approved ones too:
+
+```bash
+yna --include-approved --since 20260701 --until 20260731
+```
+
+Without `--since`/`--until`, approved transactions are only considered from the period that Amazon transactions are retrieved for (the last 31 days, plus a few days' margin), since older ones can't be matched. `--needs-category` always includes approved transactions.
+
 ### Answering prompts faster
 Pass `--one-key` (with `yna` or `yna ynamazon`) to answer each y/n prompt with a single key press instead of typing `y` or `n` and pressing Enter. Other keys are ignored, and Ctrl-C still stops the program. When input is piped instead of typed, the normal prompts are used.
 
