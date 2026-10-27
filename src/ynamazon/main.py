@@ -16,7 +16,7 @@ from ynamazon.amazon_transactions import (
 from ynamazon.ai_categorization import suggest_categorization
 from ynamazon.ai_clients import ai_api_key_configured
 from ynamazon.confirm import confirm
-from ynamazon.date_range import DateRange
+from ynamazon.date_range import DEFAULT_RANGE_DAYS, DateRange
 from ynamazon.exceptions import YnabSetupError
 from ynamazon.settings import settings
 from ynamazon.ynab_categories import get_budget_categories, is_uncategorized
@@ -24,6 +24,7 @@ from ynamazon.ynab_memo import process_memo
 from ynamazon.ynab_transactions import default_configuration as ynab_configuration
 from ynamazon.ynab_transactions import (
     get_uncategorized_ynab_transactions,
+    drop_approved,
     get_ynab_transactions,
     markdown_formatted_link,
     markdown_formatted_title,
@@ -46,6 +47,15 @@ if TYPE_CHECKING:
 # Extra days of YNAB transactions to consider beyond the Amazon transaction window, when the YNAB transactions
 # would otherwise go back further (needs-category mode, or approved transactions included)
 MATCH_WINDOW_BUFFER_DAYS = 7
+
+
+def matchable_since(transaction_days: int = DEFAULT_RANGE_DAYS) -> date:
+    """Returns the earliest YNAB date worth considering when Amazon transactions go back `transaction_days`.
+
+    Older transactions can't be matched to the Amazon transactions that get retrieved. The extra days allow for
+    YNAB dating a charge a little earlier than Amazon's completed date.
+    """
+    return date.today() - timedelta(days=transaction_days + MATCH_WINDOW_BUFFER_DAYS)
 
 
 class MultiLineText(BaseModel):
@@ -201,14 +211,10 @@ def process_transactions(  # noqa: C901
 
     # In needs-category mode, only transactions with this payee still need a memo
     needs_memo_payee_id: str | None = None
-    # Older transactions can't be matched to the Amazon transactions that get retrieved. The extra days
-    # allow for YNAB dating a charge a little earlier than Amazon's completed date.
     if date_range is not None:
         since_date = date_range.since
-    elif needs_category or include_approved:
-        since_date = date.today() - timedelta(
-            days=amazon_retriever.transaction_days + MATCH_WINDOW_BUFFER_DAYS
-        )
+    elif needs_category:
+        since_date = matchable_since(amazon_retriever.transaction_days)
     else:
         since_date = None
     try:
@@ -224,7 +230,8 @@ def process_transactions(  # noqa: C901
                 configuration=ynab_config,
                 budget_id=budget_id,
                 since_date=since_date,
-                include_approved=include_approved,
+                # Approved transactions are dropped below, once the ones skipped in a date range can be counted
+                include_approved=True,
             )
     except YnabSetupError:
         console.print("[bold red]No matching Transactions found in YNAB. Exiting.[/]")
@@ -233,15 +240,28 @@ def process_transactions(  # noqa: C901
     if date_range is not None:
         # YNAB can only filter by start date, so apply the end of the range here
         ynab_trans.filter(lambda t: date_range.contains(t.var_date))
+
+    skipped_approved = 0
+    if not needs_category:
+        # Without a date range, only approved transactions recent enough to be matched are included
+        skipped_approved = drop_approved(
+            ynab_trans,
+            include_approved=include_approved,
+            approved_since=matchable_since(amazon_retriever.transaction_days)
+            if include_approved and date_range is None
+            else None,
+        )
+
+    if date_range is not None:
         if not ynab_trans:
-            if needs_category or include_approved:
+            if skipped_approved and not include_approved:
                 console.print(
-                    "[green]No Amazon transactions to process in YNAB for this date range.[/]"
+                    "[green]No unapproved Amazon transactions to process in YNAB for this date range "
+                    f"({skipped_approved} approved ones skipped). Use --include-approved to include them.[/]"
                 )
             else:
                 console.print(
-                    "[green]No unapproved Amazon transactions to process in YNAB for this date range. "
-                    "Use --include-approved to include approved ones.[/]"
+                    "[green]No Amazon transactions to process in YNAB for this date range.[/]"
                 )
             return
         console.print(f"[green]{len(ynab_trans)} YNAB transactions in this date range.[/]")

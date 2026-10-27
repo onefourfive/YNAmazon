@@ -8,7 +8,7 @@ import pytest
 
 from ynamazon.amazon_transactions import find_amazon_transaction
 from ynamazon.main import process_transactions
-from ynamazon.ynab_transactions import TempYnabTransaction
+from ynamazon.ynab_transactions import TempYnabTransaction, TempYnabTransactions
 
 
 def _amazon_tran(total: str, completed_date: date = date(2026, 10, 3)) -> Mock:
@@ -90,7 +90,10 @@ def run():
             patch("ynamazon.main.update_ynab_transaction") as update,
             patch("ynamazon.main.settings.use_ai_categorization", False),
         ):
-            get_ynab.return_value = (ynab_trans, Mock(id="payee-processed"))
+            get_ynab.return_value = (
+                TempYnabTransactions(root=ynab_trans),
+                Mock(id="payee-processed"),
+            )
             retriever.return_value.get_amazon_transactions.return_value = amazon_trans
 
             process_transactions(ynab_config=Mock(), budget_id="budget")

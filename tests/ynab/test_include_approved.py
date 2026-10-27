@@ -11,11 +11,14 @@ from ynamazon.main import MATCH_WINDOW_BUFFER_DAYS, process_transactions
 from ynamazon.ynab_transactions import (
     TempYnabTransaction,
     TempYnabTransactions,
+    drop_approved,
     get_ynab_transactions,
 )
 
 
-def _ynab_tran(txn_id: str, approved: bool, var_date: date = date(2026, 7, 3)) -> TempYnabTransaction:
+def _ynab_tran(
+    txn_id: str, approved: bool, var_date: date = date(2026, 7, 3)
+) -> TempYnabTransaction:
     return TempYnabTransaction.model_validate(
         {
             "id": txn_id,
@@ -59,58 +62,142 @@ def test_get_ynab_transactions_filters_approved(include_approved, expected):
     assert [t.id for t in transactions] == expected
 
 
+# drop_approved
+
+OLD, RECENT = date(2026, 6, 1), date(2026, 10, 1)
+
+
+def _transactions() -> TempYnabTransactions:
+    return TempYnabTransactions(
+        root=[
+            _ynab_tran("old-unapproved", False, OLD),
+            _ynab_tran("old-approved", True, OLD),
+            _ynab_tran("recent-unapproved", False, RECENT),
+            _ynab_tran("recent-approved", True, RECENT),
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("include_approved", "approved_since", "kept"),
+    [
+        (False, None, ["old-unapproved", "recent-unapproved"]),
+        (False, date(2026, 9, 1), ["old-unapproved", "recent-unapproved"]),
+        (True, None, ["old-unapproved", "old-approved", "recent-unapproved", "recent-approved"]),
+        # The date limit only applies to approved transactions
+        (True, date(2026, 9, 1), ["old-unapproved", "recent-unapproved", "recent-approved"]),
+    ],
+)
+def test_drop_approved(include_approved, approved_since, kept):
+    transactions = _transactions()
+    removed = drop_approved(
+        transactions, include_approved=include_approved, approved_since=approved_since
+    )
+    assert [t.id for t in transactions] == kept
+    assert removed == 4 - len(kept)
+
+
 # process_transactions
 
 
 @pytest.fixture
-def get_ynab():
-    """Patch YNAB and Amazon so process_transactions stops after finding no YNAB transactions."""
-    with (
-        patch("ynamazon.main.get_ynab_transactions") as get_ynab,
-        patch("ynamazon.main.AmazonTransactionRetriever") as retriever,
-    ):
-        retriever.return_value.transaction_days = 31
-        retriever.return_value.get_amazon_transactions.return_value = []
-        get_ynab.return_value = (TempYnabTransactions(root=[]), Mock(id="payee-processed"))
-        yield get_ynab
+def run(capsys):
+    """Run process_transactions and return the ids of the YNAB transactions it tried to match."""
+
+    def _run(ynab_trans: list[TempYnabTransaction], **kwargs):
+        by_amount = {t.amount_decimal: t.id for t in ynab_trans}
+        with (
+            patch("ynamazon.main.get_ynab_transactions") as get_ynab,
+            patch("ynamazon.main.AmazonTransactionRetriever") as retriever,
+            patch("ynamazon.main.find_amazon_transaction", return_value=None) as find,
+            patch("ynamazon.main.settings.use_ai_categorization", False),
+        ):
+            retriever.return_value.transaction_days = 31
+            retriever.return_value.get_amazon_transactions.return_value = []
+            get_ynab.return_value = (
+                TempYnabTransactions(root=ynab_trans),
+                Mock(id="payee-processed"),
+            )
+            process_transactions(ynab_config=Mock(), budget_id="budget", **kwargs)
+
+        return Mock(
+            matched=[by_amount[call.kwargs["amount"]] for call in find.call_args_list],
+            get_ynab=get_ynab,
+            output=" ".join(capsys.readouterr().out.split()),
+        )
+
+    return _run
 
 
-def test_unapproved_only_looks_back_without_limit(get_ynab):
-    process_transactions(ynab_config=Mock(), budget_id="budget")
-    assert get_ynab.call_args.kwargs["since_date"] is None
-    assert get_ynab.call_args.kwargs["include_approved"] is False
+def _with_amounts(*specs: tuple[str, bool, date]) -> list[TempYnabTransaction]:
+    """YNAB transactions with distinct amounts, so the matcher's calls show which were processed."""
+    trans = []
+    for i, (txn_id, approved, var_date) in enumerate(specs):
+        tran = _ynab_tran(txn_id, approved, var_date)
+        tran.amount = -10000 * (i + 1)
+        trans.append(tran)
+    return trans
 
 
-def test_include_approved_limits_to_matchable_window(get_ynab):
-    process_transactions(ynab_config=Mock(), budget_id="budget", include_approved=True)
-    assert get_ynab.call_args.kwargs["include_approved"] is True
-    assert get_ynab.call_args.kwargs["since_date"] == date.today() - timedelta(
-        days=31 + MATCH_WINDOW_BUFFER_DAYS
+def _old_and_recent() -> list[TempYnabTransaction]:
+    old = date.today() - timedelta(days=31 + MATCH_WINDOW_BUFFER_DAYS + 1)
+    recent = date.today() - timedelta(days=3)
+    return _with_amounts(
+        ("old-unapproved", False, old),
+        ("old-approved", True, old),
+        ("recent-unapproved", False, recent),
+        ("recent-approved", True, recent),
     )
 
 
-def test_include_approved_uses_date_range(get_ynab):
+def test_unapproved_only_by_default(run):
+    result = run(_old_and_recent())
+    assert result.matched == ["old-unapproved", "recent-unapproved"]
+    assert result.get_ynab.call_args.kwargs["since_date"] is None
+
+
+def test_include_approved_limits_only_approved_to_matchable_window(run):
+    """Older unapproved transactions are still processed; only approved ones are limited to the window."""
+    result = run(_old_and_recent(), include_approved=True)
+    assert result.matched == ["old-unapproved", "recent-unapproved", "recent-approved"]
+    assert result.get_ynab.call_args.kwargs["since_date"] is None
+
+
+def test_include_approved_with_date_range_includes_all_approved_in_range(run):
     date_range = DateRange(date(2026, 7, 1), date(2026, 7, 31))
-    process_transactions(
-        ynab_config=Mock(), budget_id="budget", include_approved=True, date_range=date_range
+    trans = _with_amounts(
+        ("approved", True, date(2026, 7, 3)),
+        ("unapproved", False, date(2026, 7, 5)),
+        ("after-range", True, date(2026, 8, 3)),
     )
-    assert get_ynab.call_args.kwargs["since_date"] == date(2026, 7, 1)
+    result = run(trans, include_approved=True, date_range=date_range)
+    assert result.matched == ["approved", "unapproved"]
+    assert result.get_ynab.call_args.kwargs["since_date"] == date(2026, 7, 1)
+
+
+def test_empty_range_says_how_many_approved_were_skipped(run):
+    date_range = DateRange(date(2026, 7, 1), date(2026, 7, 31))
+    trans = _with_amounts(("a", True, date(2026, 7, 3)), ("b", True, date(2026, 7, 5)))
+    result = run(trans, date_range=date_range)
+    assert result.matched == []
+    assert "No unapproved Amazon transactions" in result.output
+    assert "(2 approved ones skipped)" in result.output
+    assert "--include-approved" in result.output
 
 
 @pytest.mark.parametrize(
-    ("include_approved", "hint_shown"), [(False, True), (True, False)]
+    ("trans", "kwargs"),
+    [
+        ([], {}),  # nothing in the range at all
+        (_with_amounts(("a", True, date(2026, 8, 3))), {}),  # approved, but outside the range
+        ([], {"include_approved": True}),
+    ],
 )
-def test_empty_range_message_mentions_approved(get_ynab, capsys, include_approved, hint_shown):
+def test_empty_range_without_skipped_approved_has_no_hint(run, trans, kwargs):
     date_range = DateRange(date(2026, 7, 1), date(2026, 7, 31))
-    process_transactions(
-        ynab_config=Mock(),
-        budget_id="budget",
-        include_approved=include_approved,
-        date_range=date_range,
-    )
-    output = " ".join(capsys.readouterr().out.split())
-    assert ("--include-approved" in output) is hint_shown
-    assert "to process in YNAB for this date range" in output
+    result = run(trans, date_range=date_range, **kwargs)
+    assert "No Amazon transactions to process in YNAB for this date range" in result.output
+    assert "--include-approved" not in result.output
 
 
 # CLI
@@ -148,3 +235,19 @@ def test_cli_include_approved_flag(args, expected):
 @pytest.mark.parametrize("args", [["ynamazon"], []])
 def test_cli_include_approved_setting(args):
     assert _include_approved_seen(args, setting=True) is True
+
+
+@pytest.mark.parametrize("setting", [True, False])
+def test_print_ynab_limits_approved_to_matchable_window(setting):
+    from ynamazon.cli.cli import cli
+
+    with (
+        patch("ynamazon.cli.cli.get_ynab_transactions") as get_ynab,
+        patch("ynamazon.cli.cli.settings.include_approved", setting),
+    ):
+        get_ynab.return_value = (TempYnabTransactions(root=[]), Mock())
+        CliRunner().invoke(cli, ["print-ynab"])
+
+    kwargs = get_ynab.call_args.kwargs
+    assert kwargs["include_approved"] is setting
+    assert kwargs["approved_since"] == date.today() - timedelta(days=31 + MATCH_WINDOW_BUFFER_DAYS)

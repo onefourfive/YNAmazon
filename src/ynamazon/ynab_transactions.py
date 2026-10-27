@@ -143,6 +143,7 @@ def get_ynab_transactions(
     budget_id: Union[str, None] = None,
     since_date: Union[date, None] = None,
     include_approved: bool = False,
+    approved_since: Union[date, None] = None,
 ) -> tuple[TempYnabTransactions, "Payee"]:
     """Returns a tuple of YNAB transactions and the payee.
 
@@ -151,6 +152,8 @@ def get_ynab_transactions(
         budget_id (str | None): The budget ID.
         since_date (date | None): Only include transactions on or after this date.
         include_approved (bool): Include approved transactions, not just unapproved ones.
+        approved_since (date | None): With `include_approved`, only include approved transactions on or after
+            this date.
 
     Returns:
         tuple[list[HybridTransaction], Payee] | None: A tuple of YNAB transactions and the payee.
@@ -172,10 +175,38 @@ def get_ynab_transactions(
         since_date=since_date,
     )
 
-    if not include_approved:
-        ynab_transactions.filter(lambda t: not t.approved)
+    drop_approved(
+        ynab_transactions, include_approved=include_approved, approved_since=approved_since
+    )
 
     return ynab_transactions, amazon_with_memo_payee
+
+
+def drop_approved(
+    transactions: TempYnabTransactions,
+    *,
+    include_approved: bool,
+    approved_since: Union[date, None] = None,
+) -> int:
+    """Removes the approved transactions that shouldn't be processed.
+
+    Unapproved transactions are always kept. Approved ones are kept only with `include_approved`, and then only
+    from `approved_since` on when it's given.
+
+    Returns:
+        int: How many transactions were removed.
+    """
+
+    def keep(transaction: TempYnabTransaction) -> bool:
+        if not transaction.approved:
+            return True
+        return include_approved and (
+            approved_since is None or transaction.var_date >= approved_since
+        )
+
+    count = len(transactions)
+    transactions.filter(keep)
+    return count - len(transactions)
 
 
 def get_amazon_payees(configuration: Configuration, budget_id: str) -> tuple[Payee, Payee]:

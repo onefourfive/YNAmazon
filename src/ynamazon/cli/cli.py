@@ -11,7 +11,7 @@ from ynab.configuration import Configuration
 from ynamazon.amazon_transactions import AmazonConfig, AmazonTransactionRetriever
 from ynamazon.confirm import confirm, set_one_key
 from ynamazon.date_range import LARGE_RANGE_MONTHS, DateRange, DateRangeError
-from ynamazon.main import process_transactions
+from ynamazon.main import matchable_since, process_transactions
 from ynamazon.settings import settings
 from ynamazon.ynab_transactions import get_ynab_transactions
 
@@ -68,6 +68,7 @@ def print_ynab_transactions(
         configuration=configuration,
         budget_id=budget_id,
         include_approved=settings.include_approved,
+        approved_since=matchable_since(),
     )
 
     console.print(f"[bold green]Found {len(transactions)} transactions.[/]")
