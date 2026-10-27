@@ -26,6 +26,15 @@ OneKeyOption = Annotated[
     ),
 ]
 
+IncludeApprovedOption = Annotated[
+    bool,
+    Option(
+        "--include-approved",
+        help="Also process approved transactions under the 'needs memo' payee (or set include_approved=true in .env)",
+        is_flag=True,
+    ),
+]
+
 cli = Typer(rich_markup_mode="rich")
 cli.add_typer(utils.app, name="utils", help="[bold cyan]Utility commands[/]")
 
@@ -55,7 +64,11 @@ def print_ynab_transactions(
     console = Console()
 
     configuration = Configuration(access_token=api_key)
-    transactions, _payee = get_ynab_transactions(configuration=configuration, budget_id=budget_id)
+    transactions, _payee = get_ynab_transactions(
+        configuration=configuration,
+        budget_id=budget_id,
+        include_approved=settings.include_approved,
+    )
 
     console.print(f"[bold green]Found {len(transactions)} transactions.[/]")
 
@@ -207,12 +220,20 @@ def ynamazon(
         ),
     ] = None,
     one_key: OneKeyOption = False,
+    include_approved: IncludeApprovedOption = False,
 ) -> None:
     """
     [bold cyan](Default) Match YNAB transactions to Amazon Transactions and optionally update YNAB Memos.[/]
 
     [yellow i]All required arguments will use defaults in .env file if not provided.[/]
     """
+    # `yna --include-approved ynamazon` passes the flag in the context from the yna callback
+    include_approved = (
+        include_approved
+        or (ctx.obj or {}).get("include_approved", False)
+        or settings.include_approved
+    )
+
     # Store the flag in the Typer context for use in commands
     ctx.obj = {"force_refresh_amazon": force_refresh_amazon}
 
@@ -228,6 +249,7 @@ def ynamazon(
         force_refresh_amazon=ctx.obj["force_refresh_amazon"],
         needs_category=needs_category,
         date_range=date_range,
+        include_approved=include_approved,
     )
 
 
@@ -286,6 +308,7 @@ def yna_callback(
         ),
     ] = None,
     one_key: OneKeyOption = False,
+    include_approved: IncludeApprovedOption = False,
 ) -> None:
     """
     [bold cyan]Run 'yna' to match and update transactions using the arguements in .env. [/]
@@ -293,7 +316,11 @@ def yna_callback(
     [yellow i]Use 'yna ynamazon [ARGS]' to use command-line arguements to override .env. [/]
     """
     # Store the flag in the Typer context for use in commands
-    ctx.obj = {"force_refresh_amazon": force_refresh_amazon, "needs_category": needs_category}
+    ctx.obj = {
+        "force_refresh_amazon": force_refresh_amazon,
+        "needs_category": needs_category,
+        "include_approved": include_approved,
+    }
     set_one_key(one_key)
 
     rprint("[bold cyan]Starting YNAmazon processing...[/]")

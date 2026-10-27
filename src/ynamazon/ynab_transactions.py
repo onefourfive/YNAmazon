@@ -142,6 +142,7 @@ def get_ynab_transactions(
     configuration: Union[Configuration, None] = None,
     budget_id: Union[str, None] = None,
     since_date: Union[date, None] = None,
+    include_approved: bool = False,
 ) -> tuple[TempYnabTransactions, "Payee"]:
     """Returns a tuple of YNAB transactions and the payee.
 
@@ -149,6 +150,7 @@ def get_ynab_transactions(
         configuration (Configuration | None): The YNAB API configuration.
         budget_id (str | None): The budget ID.
         since_date (date | None): Only include transactions on or after this date.
+        include_approved (bool): Include approved transactions, not just unapproved ones.
 
     Returns:
         tuple[list[HybridTransaction], Payee] | None: A tuple of YNAB transactions and the payee.
@@ -170,7 +172,8 @@ def get_ynab_transactions(
         since_date=since_date,
     )
 
-    ynab_transactions.filter(lambda t: not t.approved)
+    if not include_approved:
+        ynab_transactions.filter(lambda t: not t.approved)
 
     return ynab_transactions, amazon_with_memo_payee
 

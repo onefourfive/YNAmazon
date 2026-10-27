@@ -43,8 +43,9 @@ if TYPE_CHECKING:
     from ynamazon.ynab_transactions import TempYnabTransaction
 
 
-# Extra days of YNAB transactions to consider in needs-category mode, beyond the Amazon transaction window
-NEEDS_CATEGORY_DATE_BUFFER_DAYS = 7
+# Extra days of YNAB transactions to consider beyond the Amazon transaction window, when the YNAB transactions
+# would otherwise go back further (needs-category mode, or approved transactions included)
+MATCH_WINDOW_BUFFER_DAYS = 7
 
 
 class MultiLineText(BaseModel):
@@ -157,6 +158,7 @@ def process_transactions(  # noqa: C901
     force_refresh_amazon: bool = False,
     needs_category: bool = False,
     date_range: DateRange | None = None,
+    include_approved: bool = False,
 ) -> None:
     """Match YNAB transactions to Amazon Transactions and optionally update YNAB Memos.
 
@@ -166,6 +168,9 @@ def process_transactions(  # noqa: C901
 
     With `date_range`, only YNAB transactions dated within it are processed, and Amazon orders and
     transactions are retrieved to cover it instead of the default window.
+
+    Only unapproved transactions are processed unless `include_approved` is set. `needs_category` always
+    includes approved transactions.
     """
     amazon_config = amazon_config or AmazonConfig()
     ynab_config = ynab_config or ynab_configuration
@@ -196,16 +201,18 @@ def process_transactions(  # noqa: C901
 
     # In needs-category mode, only transactions with this payee still need a memo
     needs_memo_payee_id: str | None = None
+    # Older transactions can't be matched to the Amazon transactions that get retrieved. The extra days
+    # allow for YNAB dating a charge a little earlier than Amazon's completed date.
+    if date_range is not None:
+        since_date = date_range.since
+    elif needs_category or include_approved:
+        since_date = date.today() - timedelta(
+            days=amazon_retriever.transaction_days + MATCH_WINDOW_BUFFER_DAYS
+        )
+    else:
+        since_date = None
     try:
         if needs_category:
-            # Older transactions can't be matched to the Amazon transactions that get retrieved. The extra
-            # days allow for YNAB dating a charge a little earlier than Amazon's completed date.
-            if date_range is None:
-                since_date = date.today() - timedelta(
-                    days=amazon_retriever.transaction_days + NEEDS_CATEGORY_DATE_BUFFER_DAYS
-                )
-            else:
-                since_date = date_range.since
             ynab_trans, amazon_needs_memo_payee, amazon_with_memo_payee = (
                 get_uncategorized_ynab_transactions(
                     configuration=ynab_config, budget_id=budget_id, since_date=since_date
@@ -216,7 +223,8 @@ def process_transactions(  # noqa: C901
             ynab_trans, amazon_with_memo_payee = get_ynab_transactions(
                 configuration=ynab_config,
                 budget_id=budget_id,
-                since_date=date_range.since if date_range else None,
+                since_date=since_date,
+                include_approved=include_approved,
             )
     except YnabSetupError:
         console.print("[bold red]No matching Transactions found in YNAB. Exiting.[/]")
@@ -226,9 +234,15 @@ def process_transactions(  # noqa: C901
         # YNAB can only filter by start date, so apply the end of the range here
         ynab_trans.filter(lambda t: date_range.contains(t.var_date))
         if not ynab_trans:
-            console.print(
-                "[green]No Amazon transactions to process in YNAB for this date range.[/]"
-            )
+            if needs_category or include_approved:
+                console.print(
+                    "[green]No Amazon transactions to process in YNAB for this date range.[/]"
+                )
+            else:
+                console.print(
+                    "[green]No unapproved Amazon transactions to process in YNAB for this date range. "
+                    "Use --include-approved to include approved ones.[/]"
+                )
             return
         console.print(f"[green]{len(ynab_trans)} YNAB transactions in this date range.[/]")
 
