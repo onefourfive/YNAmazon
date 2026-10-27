@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from ynamazon.date_range import DateRange, DateRangeError, months_before, parse_date
 from ynamazon.main import process_transactions
-from ynamazon.ynab_transactions import TempYnabTransaction
+from ynamazon.ynab_transactions import TempYnabTransaction, TempYnabTransactions
 
 TODAY = date(2026, 10, 24)
 
@@ -152,8 +152,6 @@ def _amazon_tran(total: str, completed_date: date) -> Mock:
 
 
 def test_process_transactions_limits_work_to_range():
-    from ynamazon.ynab_transactions import TempYnabTransactions
-
     date_range = DateRange(date(2026, 9, 1), date(2026, 9, 30))
     in_range = _ynab_tran("in-range", date(2026, 9, 15))
     after_range = _ynab_tran("after-range", date(2026, 10, 5), amount=-12000)
@@ -196,7 +194,7 @@ def test_process_transactions_without_range_is_unchanged():
         patch("ynamazon.main.get_ynab_transactions") as get_ynab,
         patch("ynamazon.main.AmazonTransactionRetriever") as retriever,
     ):
-        get_ynab.return_value = ([], Mock(id="payee-processed"))
+        get_ynab.return_value = (TempYnabTransactions(root=[]), Mock(id="payee-processed"))
         retriever.return_value.get_amazon_transactions.return_value = []
         process_transactions(ynab_config=Mock(), budget_id="budget")
 

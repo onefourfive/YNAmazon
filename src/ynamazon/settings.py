@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     use_ai_summarization: bool = False
     use_ai_categorization: bool = False
     suppress_partial_order_warning: bool = False
+    include_approved: bool = False
 
     @model_validator(mode="after")
     def validate_settings(self) -> "Settings":
