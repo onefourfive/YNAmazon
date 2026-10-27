@@ -1,13 +1,15 @@
 # pyright: reportDeprecated=false
 import os
 import tempfile
-from datetime import date
+from collections import Counter
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated, Union  # ,  Self  # not available python <3.11
 
 from amazonorders.entity.item import Item
 from amazonorders.entity.order import Order
 from amazonorders.entity.transaction import Transaction
+from amazonorders.exception import AmazonOrdersError
 from amazonorders.orders import AmazonOrders
 from amazonorders.session import AmazonSession
 from amazonorders.transactions import AmazonTransactions
@@ -17,9 +19,17 @@ from pydantic import AnyUrl, BaseModel, ConfigDict, EmailStr, Field, SecretStr, 
 from rich import print as rprint
 from rich.table import Table
 
+from .date_range import ORDER_LEAD_DAYS
 from .exceptions import AmazonLoginError
 from .settings import settings
 from .types_pydantic import AmazonItemType
+
+# Amazon's transaction history stops after about 100 transactions, however far back it's asked to go. A history
+# with fewer than this many transactions is complete.
+HISTORY_LIMIT_THRESHOLD = 90
+
+# Extra days of transaction history to ask for: a transaction from before the window shows the history covers it
+HISTORY_OVERLAP_DAYS = 30
 
 
 class AmazonTransactionWithOrderInfo(BaseModel):
@@ -89,6 +99,7 @@ class AmazonTransactionRetriever:
         order_years: list[str] | None = None,
         transaction_days: int = 31,
         force_refresh_amazon: bool = False,
+        latest_date: date | None = None,
     ):
         """Initialize an AmazonTransactionRetriever.
 
@@ -96,11 +107,14 @@ class AmazonTransactionRetriever:
         order_years (list[int] | None): A list of years to fetch transactions for. `None` for the current year.
         transaction_days (int): Number of days to fetch transactions for. Defaults to 31.
         force_refresh_amazon (bool): Refresh cache by fetching transactions directly from Amazon.
+        latest_date (date | None): The latest transaction date that's needed. Orders placed after it aren't looked
+            up one by one when the transaction history runs out. `None` for no limit.
         """
         self.amazon_config = amazon_config
         self.order_years = self.__class__._normalized_years(order_years)
         self.transaction_days = transaction_days
         self.force_refresh_amazon = force_refresh_amazon
+        self.latest_date = latest_date
 
         # for memoizing the results of method calls
         self._memo = {}
@@ -117,6 +131,7 @@ class AmazonTransactionRetriever:
             order_years=self.order_years,
             transaction_days=self.transaction_days,
             amazon_config=self.amazon_config,
+            latest_date=self.latest_date,
             use_cache=not self.force_refresh_amazon,
         )
 
@@ -134,10 +149,12 @@ class AmazonTransactionRetriever:
         order_years: list[str],
         transaction_days: int,
         amazon_config: AmazonConfig,
+        latest_date: date | None,
     ) -> list[AmazonTransactionWithOrderInfo]:
-        orders_dict = {order.order_number: order for order in self._amazon_orders()}
-
         amazon_transactions = self._amazon_transactions()
+
+        # Looking up older transactions can fetch orders from years before order_years, so join afterwards
+        orders_dict = {order.order_number: order for order in self._fetched_orders()}
 
         amazon_transaction_with_order_details: list[AmazonTransactionWithOrderInfo] = []
         for transaction in amazon_transactions:
@@ -156,40 +173,133 @@ class AmazonTransactionRetriever:
         return amazon_transaction_with_order_details
 
     def _amazon_orders(self) -> list[Order]:
-        """Returns a list of Amazon orders.
-
-        Args:
-            years (Sequence[int] | None): A sequence of years to fetch orders for. `None` for the current year.
+        """Returns the Amazon orders placed in `order_years`, oldest first.
 
         Returns:
             list[Order]: A list of Amazon orders.
         """
-        if "amazon_orders" in self._memo:
-            return self._memo["amazon_orders"]
-
-        amazon_orders = AmazonOrders(self._session())
-
-        all_orders: list[Order] = []
-        for year in self.order_years:
-            all_orders.extend(amazon_orders.get_orders(year=year))
+        all_orders = [order for year in self.order_years for order in self._orders_for_year(year)]
         all_orders.sort(key=lambda order: order.order_placed_date)
 
-        self._memo["amazon_orders"] = all_orders
+        return all_orders
 
-        return self._memo["amazon_orders"]
+    def _orders_for_year(self, year: str) -> list[Order]:
+        """Fetches the Amazon orders placed in a year, once."""
+        orders_by_year = self._memo.setdefault("orders_by_year", {})
+        if year not in orders_by_year:
+            if "orders_api" not in self._memo:
+                self._memo["orders_api"] = AmazonOrders(self._session())
+            orders_by_year[year] = self._memo["orders_api"].get_orders(year=year)
+
+        return orders_by_year[year]
+
+    def _fetched_orders(self) -> list[Order]:
+        """Returns the orders for `order_years`, plus any other years fetched to look up older transactions."""
+        self._amazon_orders()
+
+        return [order for orders in self._memo["orders_by_year"].values() for order in orders]
 
     def _amazon_transactions(self) -> list[Transaction]:
-        """Fetches and sorts Amazon transactions."""
+        """Fetches and sorts Amazon transactions.
+
+        Amazon's transaction history stops after about 100 transactions, however far back it's asked to go. When
+        it's cut off before the requested window starts, the transactions for orders placed in the gap are looked
+        up order by order, which Amazon still allows.
+        """
         if "amazon_transactions" in self._memo:
             return self._memo["amazon_transactions"]
 
-        self._memo["amazon_transactions"] = AmazonTransactions(
-            amazon_session=self._session()
-        ).get_transactions(days=self.transaction_days)
+        start = date.today() - timedelta(days=self.transaction_days)
+        amazon_transactions = AmazonTransactions(amazon_session=self._session())
 
-        self._memo["amazon_transactions"].sort(key=lambda trans: trans.completed_date)
+        transactions = amazon_transactions.get_transactions(
+            days=self.transaction_days + HISTORY_OVERLAP_DAYS
+        )
+        history_start = min((t.completed_date for t in transactions), default=start)
+        # A short history is complete, even if nothing in it is from before the window
+        if history_start >= start and len(transactions) >= HISTORY_LIMIT_THRESHOLD:
+            transactions.extend(
+                self._transactions_by_order(amazon_transactions, start, transactions)
+            )
+
+        transactions = [t for t in transactions if t.completed_date >= start]
+        transactions.sort(key=lambda trans: trans.completed_date)
+
+        self._memo["amazon_transactions"] = transactions
 
         return self._memo["amazon_transactions"]
+
+    def _transactions_by_order(
+        self,
+        amazon_transactions: AmazonTransactions,
+        start: date,
+        history: list[Transaction],
+    ) -> list[Transaction]:
+        """Looks up the transactions the cut-off history didn't reach, for orders placed in the gap.
+
+        Orders are looked up from those placed a little before `start` (they can be charged later) through the
+        history's earliest date, or `latest_date` if that's earlier. The history can stop partway through its
+        earliest date, so transactions on that date are kept unless the history already has them.
+
+        Args:
+            amazon_transactions (AmazonTransactions): The transaction API to look the orders up with.
+            start (date): The start of the requested window.
+            history (list[Transaction]): The transactions from the history.
+
+        Returns:
+            list[Transaction]: The transactions the history didn't have.
+        """
+        history_start = min(t.completed_date for t in history)
+        latest = history_start if self.latest_date is None else min(history_start, self.latest_date)
+        orders = self._orders_placed_between(start - timedelta(days=ORDER_LEAD_DAYS), latest)
+        if not orders:
+            return []
+
+        rprint(
+            f"[yellow]Amazon's transaction history only goes back to {history_start}. "
+            f"Looking up {len(orders)} older orders one at a time...[/]"
+        )
+        already_found = Counter(
+            _transaction_key(t) for t in history if t.completed_date == history_start
+        )
+        found: list[Transaction] = []
+        failed = 0
+        for order in orders:
+            try:
+                order_transactions = amazon_transactions.get_transactions(
+                    order_id=order.order_number
+                )
+            except AmazonOrdersError as e:
+                logger.warning(
+                    f"Couldn't look up the transactions for order {order.order_number}: {e}"
+                )
+                failed += 1
+                continue
+
+            for transaction in order_transactions:
+                if transaction.completed_date > history_start:
+                    continue
+                key = _transaction_key(transaction)
+                if already_found[key]:
+                    already_found[key] -= 1
+                    continue
+                found.append(transaction)
+
+        if failed:
+            rprint(
+                f"[yellow]Couldn't look up {failed} of the older orders; their transactions won't be matched.[/]"
+            )
+
+        return found
+
+    def _orders_placed_between(self, earliest: date, latest: date) -> list[Order]:
+        """Returns the orders placed from `earliest` through `latest`, fetching any years not fetched yet."""
+        return [
+            order
+            for year in range(earliest.year, latest.year + 1)
+            for order in self._orders_for_year(str(year))
+            if earliest <= order.order_placed_date <= latest
+        ]
 
     def get_order_items(self, order_number: str) -> list[Item]:
         """Fetches an order's details page to get its items with prices, which the order history doesn't include.
@@ -236,6 +346,11 @@ class AmazonTransactionRetriever:
                 raise ValueError("Year must be specified as 2 or 4 digits (e.g. 21 or 2021)")
 
         return result
+
+
+def _transaction_key(transaction: Transaction) -> tuple[str | None, date, Decimal | float]:
+    """Identifies a transaction, to tell whether the history and an order lookup both returned it."""
+    return (transaction.order_number, transaction.completed_date, transaction.grand_total)
 
 
 def print_amazon_transactions(

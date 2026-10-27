@@ -114,8 +114,13 @@ class DateRange:
 
     def contains_amazon(self, day: date) -> bool:
         """Returns True if an Amazon transaction date could match a YNAB transaction in the range."""
-        buffer = timedelta(days=AMAZON_DATE_BUFFER_DAYS)
-        return self.since - buffer <= day <= self.until + buffer
+        return (
+            self.since - timedelta(days=AMAZON_DATE_BUFFER_DAYS) <= day <= self.latest_amazon_date()
+        )
+
+    def latest_amazon_date(self) -> date:
+        """The latest Amazon transaction date that could match a YNAB transaction in the range."""
+        return self.until + timedelta(days=AMAZON_DATE_BUFFER_DAYS)
 
     def amazon_transaction_days(self, today: date | None = None) -> int:
         """The number of days back from today to retrieve Amazon transactions for."""
